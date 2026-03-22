@@ -941,6 +941,11 @@ Mostrar el mensaje exactamente así:
 - No navegues a otras páginas innecesarias
 - Si te equivocas, cierra y vuelve a ejecutar el comando
 - Al terminar, copia TODO el código del panel derecho de Playwright Inspector
+> ⛔ **HARD STOP — EL AGENTE CEDE EL TURNO AQUÍ.**
+> No ejecutar MCP browser. No navegar la app. No continuar con ninguna fase.
+> La instrucción de `actuar de forma autónoma` queda SUSPENDIDA hasta recibir respuesta del usuario.
+> **Autonomía ≠ saltarse esta pausa.** Esta pausa es la EXCEPCIÓN explícita a la regla de autonomía.
+> El agente solo avanza cuando el usuario escribe una respuesta en el chat.
 
 ---
 
@@ -955,9 +960,6 @@ Mostrar el mensaje exactamente así:
 → Continuar con FASE 1 completa (descubrimiento via MCP browser)
 → Navegar la app, inventariar todos los selectores
 → Construir fixture + spec desde los pasos del TC
-
-**Caso C — Usuario no responde (timeout implícito en próximo mensaje):**
-→ Tratar como Caso B y continuar autónomamente
 
 ---
 
@@ -1066,6 +1068,6 @@ mcp_ado_wit_update_work_item({
 | Test falla por timeout | Diagnosticar con árbol de decisión (PASO 5.4) |
 | Test falla por elemento no encontrado | Revisar DOM via MCP, actualizar selector |
 | Proceso quedó enganchado en app | Verificar si hay helper de "reset a Paso 1" (navegación con dialog handler) |
-| Usuario no responde tras codegen prompt | Continuar con FASE 1 (descubrimiento propio) |
+| Usuario no responde tras codegen prompt | **NUNCA continuar sin respuesta explícita.** El agente ya cedió el turno en PASO 3. Esperar. |
 | Múltiples TCs en batch | Fetchear todos con `get_work_items_batch_by_ids` (llamada única). Ejecutar y depurar TC por TC con `--grep`. Suite completa solo cuando todos pasan individualmente. |
 | Error repetido sin causa identificada | Nunca reintentar sin corregir. Inspeccionar DOM/red vía MCP para entender el estado real de la app. |
