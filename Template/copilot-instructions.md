@@ -26,7 +26,7 @@ PASO 3 — PAUSA: Entregar comando codegen al usuario
   │    <URL_DE_INICIO_DEL_FLUJO>                        │
   │                                                     │
   │  Graba el flujo del TC. Al terminar:                │
-  │  - pega el código aquí, o                          │
+  │  - pega el código aquí, o                           │
   │  - escribe "sin codegen" para que continúe solo     │
   └─────────────────────────────────────────────────────┘
        ↓
