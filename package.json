@@ -1,0 +1,7 @@
+{
+  "name": "playwright-agent-template",
+  "version": "1.0.0",
+  "bin": {
+    "init-e2e": "./index.js"
+  }
+}
