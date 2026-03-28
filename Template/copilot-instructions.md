@@ -118,3 +118,35 @@ mcp_ado_wit_update_work_item({
 - No duplicar lógica entre fixture y spec
 - No pedir al usuario que prepare el entorno
 - No detenerse hasta que el test pase en verde ✅
+
+---
+
+## ⛔ PASOS BLOQUEANTES — No avanzar sin completarlos
+
+### Al recibir código codegen (PASO 4A):
+**ANTES de escribir fixture o spec:**
+1. Navegar la app con MCP Browser y verificar CADA selector del codegen
+2. Ejecutar el script de inventario JS en cada pantalla (ver `selector-strategy.md`)
+3. Detectar campos JS-RESTRICTED (`oninput`, `onkeypress`)
+4. Solo entonces escribir el fixture con selectores confirmados
+
+**⛔ PROHIBIDO** copiar IDs del codegen o del YAML sin verificarlos en el DOM real.
+Los IDs en YAML/codegen pueden estar desactualizados o ser incorrectos.
+
+### Al llenar campos:
+- Usar `safeSetValue()` para campos JS-RESTRICTED (ver `playwright-guide.md`)
+- Verificar con `inputValue()` que el valor quedó después de `fill()`
+- Si `fill()` deja el campo vacío → aplicar fallback `page.evaluate` automáticamente
+
+### Al ejecutar el test y fallar:
+1. Leer el error exacto
+2. Capturar screenshot del estado actual
+3. Diagnosticar causa (selector? postback? JS handler?)
+4. Corregir → re-ejecutar
+5. Actualizar `execution-rules.md` con la regla aprendida
+6. Repetir hasta ✅
+
+### Señales de AutoPostBack en el codegen:
+Si el codegen registra `page.goto(mismaURL)` después de un `selectOption()` →
+el select tiene AutoPostBack. Todos los inputs se resetean tras ese postback.
+Rellenar TODOS los inputs después del último select con postback.
