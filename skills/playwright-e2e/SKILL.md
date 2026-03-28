@@ -695,23 +695,45 @@ testInfo.annotations.push({
 
 **Este flujo es diferente al flujo desde-cero:** el código existente es el punto de partida, no los TCs.
 
-Este flujo es diferente al flujo desde-cero: **el código existente es el punto de partida**, no los TCs.
+> ⛔ **REGLA ABSOLUTA — EL CODEGEN ES EL MAPA, NO LA FUENTE DE SELECTORES**
+>
+> El código de Playwright Codegen identifica QUÉ pantallas y QUÉ interacciones existen.
+> **NO es una fuente confiable de selectores** — puede usar clases CSS, `getByText()`,
+> nth-child, o IDs desactualizados que fallarán en ejecución.
+>
+> **ANTES de escribir una sola línea de fixture:**
+> 1. Navegar CADA pantalla del flujo con MCP Browser
+> 2. Ejecutar el JS inventory (REGLA 0) para obtener los IDs reales del DOM
+> 3. Si el codegen usó una clase CSS → buscar el `id` del mismo elemento en el DOM real
+> 4. Solo entonces asignar selectores en el fixture
+>
+> ⛔ **PROHIBIDO** copiar selectores del codegen o de archivos YAML/config sin verificarlos
+> en el DOM real. Un selector no verificado es un bug garantizado.
 
 ### Algoritmo de Auditoría
 
 ```
+0. ⛔ BLOQUEANTE — ANTES de tocar el fixture:
+   Para cada pantalla del flujo codegen:
+     → Navegar con MCP Browser
+     → Ejecutar JS inventory (ver REGLA 0)
+     → Anotar id real de cada elemento interactivo
+     → Solo continuar cuando TODOS los IDs estén confirmados
+   ↓
 1. Leer TODO el fixture y el spec existentes
    ↓
 2. Extraer inventario de selectores: todas las strings que aparecen en
    locator(), fill(), click(), getByText(), getByRole(), etc.
    ↓
-3. Para cada pantalla del flujo, navegar con MCP y ejecutar el JS de REGLA 0
+3. Comparar: selector del codegen → ID real del DOM → asignar PRIORITY 1 (#id)
    ↓
-4. Comparar: selector actual → DOM real → ¿hay mejor opción?
+4. Aplicar upgrades y simplificaciones
    ↓
-5. Aplicar upgrades y simplificaciones
+5. Ejecutar el test: el AGENTE corre npx playwright test --headed
+   → Si falla: diagnosticar, corregir, re-ejecutar
+   → NUNCA decir "está listo" sin ver ✅ en el output del terminal
    ↓
-6. Re-ejecutar una vez y verificar que los tests pasan
+6. Solo cuando el test pasa verde → entregar comando de ejecución al usuario
 ```
 
 ### Paso 2 — Extracción de Selectores del Código

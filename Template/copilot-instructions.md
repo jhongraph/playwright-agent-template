@@ -3,7 +3,8 @@
 ## Protocolo principal — TC ID + Org → Test automatizado completo
 
 El flujo estándar se activa cuando el usuario dice "inicia" o indica que quiere automatizar.
-El agente completa TODO el trabajo — el usuario solo ejecuta codegen, provee el TC y al final ejecuta los tests.
+El agente completa TODO el trabajo — el usuario hace DOS cosas: ejecutar el codegen y proveer el TC ID.
+El agente construye, ejecuta y verifica el test. El usuario solo recibe el resultado cuando está en verde ✅.
 
 ```
 ENTRADA DEL USUARIO:
@@ -32,31 +33,49 @@ PASO 3 — Fetch automático del TC via ADO MCP + recibir código codegen
   → Extraer: título, módulo, URL de la app, pasos, datos, resultado esperado
   → Combinar con el código codegen recibido del usuario
        ↓
-PASO 4A — Usuario pegó código codegen
-  → Aplicar FASE 5: auditar + optimizar selectores via MCP browser
-  → Convertir a fixture + spec con selectores PRIORITY 1 (#id)
+PASO 4A — Usuario pegó código codegen  ⛔ BLOQUEANTE — NO escribir fixture sin completar este paso
+  → El codegen es el MAPA DEL FLUJO (qué pantallas, qué interacciones)
+     NO es la fuente de selectores — sus IDs/clases pueden estar desactualizados
+  → Para CADA pantalla del flujo:
+       1. Navegar con MCP Browser
+       2. Ejecutar JS inventory: Array.from(document.querySelectorAll('[id]'))
+          .filter(e=>['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(e.tagName))
+          .map(e=>({id:e.id,tag:e.tagName,type:e.type}))
+       3. Asignar selector PRIORITY 1 (#id real del DOM) — no copiar del codegen ni del YAML
+       4. Si el codegen usó clase CSS → buscar el id real del mismo elemento
+  → Recién entonces: escribir fixture con selectores 100% confirmados
   → Completar assertions, screenshots, helpers
        ↓
 PASO 4B — Usuario dice "sin codegen" / no responde con código
   → Aplicar FASE 1: navegar la app via MCP, descubrir selectores
   → Construir fixture + spec desde cero usando el TC como guía
        ↓
-PASO 5 — Completar el test autónomamente
-  → Implementar TODOS los pasos del TC
-  → Verificar compile (tsc --noEmit)
-  → Ejecutar: npx playwright test <archivo> --headed
-  → Si falla: diagnosticar, corregir, re-ejecutar
-  → Repetir hasta que pase ✅
+PASO 5 — El agente ejecuta y verifica el test (autonomamente)
+  → Verificar compile: tsc --noEmit
+  → El AGENTE ejecuta: npx playwright test <archivo> --headed
+  → Leer la salida completa del test
+  → Si falla:
+       1. Leer error exacto + screenshot del estado
+       2. Diagnosticar causa (selector? postback? JS handler? timing?)
+       3. Corregir el fixture/spec
+       4. Re-ejecutar
+       5. NUNCA repetir el mismo paso sin cambio previo
+  → Repetir hasta que el agente vea ✅ en la salida del terminal
+  ⛔ PROHIBIDO decirle al usuario "ya está listo, córrelo" si el agente
+     no ejecutó el test o si el último resultado fue un fallo
        ↓
 RESULTADO FINAL:
-  → Test pasa en verde ✅
-  → Entregar al usuario: comando de ejecución final
+  → El agente confirma: test pasó en verde ✅ (con evidence del output)
+  → Entregar al usuario SOLO el comando de re-ejecución:
     "npx playwright test tests/<archivo>.spec.ts --headed"
 ```
 
-> **Regla absoluta:** El agente NO pide al usuario que instale nada, cree carpetas
-> ni configure nada. Toda preparación técnica es responsabilidad del agente.
-> El usuario hace TRES cosas: ejecutar codegen + proveer TC ID + ejecutar los tests al final.
+> **Regla absoluta:** El agente NO pide al usuario que instale nada, cree carpetas,
+> configure nada ni ejecute tests para verificar. Toda preparación técnica y verificación
+> es responsabilidad del agente.
+> El usuario hace DOS cosas: ejecutar codegen + proveer TC ID.
+> El agente hace todo lo demás: verificar selectores en vivo, construir, correr, corregir,
+> y solo entregar el comando final cuando el test ya pasó verde.
 
 ---
 
