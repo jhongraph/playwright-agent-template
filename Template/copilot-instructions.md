@@ -2,35 +2,37 @@
 
 ## Protocolo principal — TC ID + Org → Test automatizado completo
 
-El flujo estándar se activa cuando el usuario proporciona un **ID de Test Case** y la **organización ADO**.
-El agente completa TODO el trabajo — el usuario solo ejecuta codegen y al final ejecuta los tests.
+El flujo estándar se activa cuando el usuario dice "inicia" o indica que quiere automatizar.
+El agente completa TODO el trabajo — el usuario solo ejecuta codegen, provee el TC y al final ejecuta los tests.
 
 ```
 ENTRADA DEL USUARIO:
-  "TC: 9360, org: AutoregPR"  (o cualquier variante)
+  "inicia"  (o cualquier variante para arrancar)
        ↓
-PASO 1 — Fetch automático del TC via ADO MCP
-  mcp_ado_wit_get_work_item({ id: <TC_ID>, org: <ORG> })
-  → Extraer: título, módulo, URL de la app, pasos, datos, resultado esperado
-       ↓
-PASO 2 — Preparar entorno (FASE 0.5 del skill playwright-e2e)
+PASO 1 — Preparar entorno (FASE 0.5 del skill playwright-e2e)
   → Verificar/crear proyecto Playwright
   → Instalar dependencias si faltan
-  → Crear playwright.config.ts con baseURL de la app
+  → Crear playwright.config.ts con baseURL base de la app
   → Crear estructura de carpetas
        ↓
-PASO 3 — PAUSA: Entregar comando codegen al usuario
+PASO 2 — PAUSA: Entregar comando codegen al usuario
   ┌─────────────────────────────────────────────────────┐
   │  ENTORNO LISTO — Ejecuta este comando:              │
   │  npx playwright codegen --viewport-size=1280,720 \  │
   │    <URL_DE_INICIO_DEL_FLUJO>                        │
   │                                                     │
-  │  Graba el flujo del TC. Al terminar:                │
-  │  - pega el código aquí, o                           │
-  │  - escribe "sin codegen" para que continúe solo     │
+  │  Graba el flujo que quieres automatizar.            │
+  │  Al terminar, pega el código aquí junto con         │
+  │  el ID del TC (ej: "TC: 9360") o describe           │
+  │  el flujo si no tienes TC.                          │
   └─────────────────────────────────────────────────────┘
        ↓
-PASO 4A — Usuario pega código codegen
+PASO 3 — Fetch automático del TC via ADO MCP + recibir código codegen
+  mcp_ado_wit_get_work_item({ id: <TC_ID>, org: <ORG> })
+  → Extraer: título, módulo, URL de la app, pasos, datos, resultado esperado
+  → Combinar con el código codegen recibido del usuario
+       ↓
+PASO 4A — Usuario pegó código codegen
   → Aplicar FASE 5: auditar + optimizar selectores via MCP browser
   → Convertir a fixture + spec con selectores PRIORITY 1 (#id)
   → Completar assertions, screenshots, helpers
@@ -54,7 +56,7 @@ RESULTADO FINAL:
 
 > **Regla absoluta:** El agente NO pide al usuario que instale nada, cree carpetas
 > ni configure nada. Toda preparación técnica es responsabilidad del agente.
-> El usuario solo hace DOS cosas: ejecutar codegen + ejecutar los tests al final.
+> El usuario hace TRES cosas: ejecutar codegen + proveer TC ID + ejecutar los tests al final.
 
 ---
 
@@ -62,9 +64,10 @@ RESULTADO FINAL:
 
 | Entrada del usuario | Flujo |
 |---|---|
-| ID de TC + org ADO | Protocolo principal (arriba) |
-| Código codegen pegado | FASE 5 directa (auditoría + conversión) |
-| "Automatiza este flujo" sin TC ni código | FASE 0.5 → codegen → FASE 5 |
+| "inicia" | Protocolo principal: entorno → codegen → TC → test |
+| Código codegen + TC ID | PASO 3 directo (saltar entorno y codegen) |
+| Código codegen pegado sin TC | FASE 5 directa (auditoría + conversión) |
+| TC ID sin código codegen | Entorno → codegen → PASO 3 → FASE 1 si "sin codegen" |
 | Código existente con errores/fallas | FASE 5 (diagnóstico + corrección) |
 
 ---
