@@ -1,0 +1,6 @@
+[  181752ms] TypeError: Cannot read properties of null (reading 'addEventListener')
+    at https://pdvpreprod.portaldevehiculos.com/Forms/CarRegistrationBatch.aspx:911:23
+[  361328ms] TypeError: Cannot read properties of null (reading 'addEventListener')
+    at https://pdvpreprod.portaldevehiculos.com/Forms/CarRegistrationBatch.aspx:932:23
+[  361919ms] TypeError: Cannot read properties of null (reading 'addEventListener')
+    at https://pdvpreprod.portaldevehiculos.com/Forms/CarRegistrationBatch.aspx:932:23
