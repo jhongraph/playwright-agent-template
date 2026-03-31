@@ -2,9 +2,15 @@
 
 ## REGLA 1 — Esperas obligatorias
 
-Siempre usar:
-- `waitForLoadState('networkidle')`
-- Para ASP.NET: también esperar que UpdatePanel no esté en postback
+Siempre usar `waitForPageIdle()` — la variante depende de la tecnología detectada en FASE 1:
+
+| Tecnología | Variante |
+|---|---|
+| ASP.NET WebForms / UpdatePanel | Variante A — `networkidle` + verificar `PageRequestManager` |
+| React / Vue / Angular (SPA) | Variante B — `networkidle` + esperar que desaparezcan spinners / `[aria-busy]` |
+| Tecnología desconocida | Variante C — combinar A + B con `.catch(() => {})` |
+
+Ver implementación en `playwright-guide.md`.
 
 Prohibido:
 - `page.waitForTimeout()` — NUNCA
@@ -16,10 +22,17 @@ Prohibido:
 Prohibido:
 - nth-child, xpath dinámico, texto parcial si existe `id`
 
-Obligatorio:
-- PRIORITY 1: `#id` si el elemento tiene `id`
-- PRIORITY 2: `[name="x"]` si no hay id pero hay name único
-- PRIORITY 7 (último recurso): `button:has-text(...)` solo sin id/name/value
+Obligatorio — jerarquía completa (ver `selector-strategy.md` para detalles):
+
+| P | Tipo | Condición |
+|---|---|---|
+| 1 | `#id` | Existe `id` — **SIEMPRE usar** |
+| 2 | `[name="x"]` | `name` único en página |
+| 3 | `[data-x="y"]` | Atributo `data-*` semántico |
+| 4 | `getByRole(role, {name})` | Elemento tiene role y label accesible |
+| 5 | `input[value="x"]` | Sin ID ni name, tiene value estable |
+| 6 | CSS estructural | Combinación estable sin texto |
+| 7 | `button:has-text(...)` | ⚠️ ÚLTIMO RECURSO — solo sin id/name/value |
 
 **⛔ BLOQUEANTE — ANTES de escribir cualquier selector:**
 Verificar en MCP Browser que el `id` existe y es el correcto.
@@ -29,12 +42,13 @@ El YAML/código de referencia puede tener IDs obsoletos o incorrectos.
 
 ## REGLA 3 — Orden de llenado
 
-1. Selects primero (cada uno puede disparar AutoPostBack)
-2. Inputs de texto DESPUÉS del último select
-3. Campos críticos / consumibles AL FINAL
+> Un **campo reactivo** es cualquier campo cuya interacción dispara una llamada al servidor que puede resetear, rellenar o deshabilitar otros campos. Existe en WebForms (`__doPostBack`), React/Vue (`onChange` → fetch), Angular (`valueChanges` → HTTP), etc.
 
-Si hay AutoPostBack en un select → todos los inputs se resetean.
-Rellenar inputs SIEMPRE después del último select con postback.
+1. Identificar campos reactivos (FASE 1 — Detección de Campos Reactivos del skill)
+2. Llenar primero los campos que NO son reactivos ni dependen de otros
+3. Llenar campos reactivos → `waitForPageIdle()` después de cada uno
+4. Llenar campos que dependen del resultado del reactivo DESPUÉS del `waitForPageIdle()`
+5. Campos que el servidor puede resetear → llenar siempre AL FINAL
 
 ---
 
@@ -65,7 +79,7 @@ Usar assert duro SOLO en el resultado final (número de caso, confirmación).
 ## REGLA 7 — Diagnóstico obligatorio ante fallo
 
 1. Capturar screenshot
-2. Leer errores UI (`[class*="error"]`, validators ASP.NET visibles)
+2. Leer errores UI (`[class*="error"]`, `[class*="alert"]`, `[aria-invalid]`, validators del framework visibles)
 3. Diagnosticar causa (postback? selector? handler JS?)
 4. Corregir Y LUEGO reintentar
 5. Nunca repetir el mismo click sin cambio previo
@@ -98,27 +112,10 @@ Cada error corregido → actualizar este archivo con la regla aprendida.
 ## REGLA 11 — Verificar fill() exitoso ⚠️ CRÍTICA
 
 Después de cada `fill()` o `selectOption()`, leer el valor con `inputValue()`.
-Si el valor quedó vacío o incorrecto → aplicar estrategia `safeSetValue()`:
+Si el valor quedó vacío o incorrecto → aplicar `safeSetValue()`.
 
-```ts
-async function safeSetValue(page: Page, selector: string, value: string): Promise<void> {
-  const loc = page.locator(selector);
-  await loc.click();
-  await loc.fill(value);
-  const current = await loc.inputValue();
-  if (!current || current === '') {
-    // Fallback: asignar via evaluate (evita onkeypress/oninput restrictivos)
-    await page.evaluate((args) => {
-      const el = document.getElementById(args.id) as HTMLInputElement;
-      if (el) {
-        el.value = args.val;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }, { id: selector.replace('#', ''), val: value });
-  }
-}
-```
+> Implementación canónica en `playwright-guide.md` — usar esa versión, no duplicar aquí.
+> Diferencia clave: usa `selector.startsWith('#') ? selector.slice(1) : selector` para extraer el ID limpio.
 
 Campos con `oninput="validateInput(this)"` o `onkeypress="return allowAlphaNumericOnly(event)"` → siempre usar `safeSetValue()`.
 
@@ -138,9 +135,14 @@ Si tiene `onkeypress` o `oninput` restrictivos:
 
 ---
 
-## REGLA 13 — AutoPostBack: recarga completa del formulario
+## REGLA 13 — Campos Reactivos: reseteo de formulario
 
-En ASP.NET WebForms, un `<select>` con AutoPostBack hace postback COMPLETO:
-- Todos los `<input>` quedan vacíos tras el postback
-- Solución: rellenar inputs SIEMPRE después del último select
-- Si el codegen muestra `page.goto(mismaURL)` después de un select → es señal de AutoPostBack con reseteo de campos
+Cualquier framework puede tener campos que al cambiar su valor disparan una solicitud al servidor que resetea otros campos:
+
+| Framework | Señal en codegen | Mecanismo |
+|---|---|---|
+| ASP.NET WebForms | `page.goto(mismaURL)` después de `selectOption()` | `__doPostBack` — postback completo, todos los inputs se vacían |
+| React / Vue | request XHR/fetch después de `selectOption()` o `fill()` | `onChange` → setState → re-render puede limpiar campos dependientes |
+| Angular | request HTTP después de interacción | `valueChanges` → llamada a servicio → formulario parcialmente reseteado |
+
+**Solución universal:** rellenar los campos dependientes SIEMPRE después del `waitForPageIdle()` del campo reactivo.

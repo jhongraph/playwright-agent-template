@@ -1,0 +1,8 @@
+{
+  "available": {
+    "items": ["ITEM001", "ITEM002", "ITEM003"]
+  },
+  "used": {
+    "items": []
+  }
+}

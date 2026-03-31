@@ -48,7 +48,11 @@ test.describe('Flujo', () => {
 
 ## Helpers obligatorios
 
-### `waitForPageIdle(page)` — ASP.NET UpdatePanel
+### `waitForPageIdle(page)` — 3 variantes según tecnología
+
+> Elegir la variante correcta según la tecnología detectada en FASE 1. No mezclarlas.
+
+**Variante A — ASP.NET WebForms / UpdatePanel:**
 ```ts
 async function waitForPageIdle(page: Page, timeout = 20_000): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout });
@@ -56,6 +60,36 @@ async function waitForPageIdle(page: Page, timeout = 20_000): Promise<void> {
     const prm = (window as any).Sys?.WebForms?.PageRequestManager?.getInstance?.();
     return !prm || !prm.get_isInAsyncPostBack();
   }, { timeout });
+}
+```
+
+**Variante B — React / Vue / Angular (SPA):**
+```ts
+async function waitForPageIdle(page: Page, timeout = 20_000): Promise<void> {
+  await page.waitForLoadState('networkidle', { timeout });
+  await page.waitForFunction(() => {
+    const spinners = document.querySelectorAll(
+      '.spinner, .loading, [class*="skeleton"], [class*="loading"], [aria-busy="true"]'
+    );
+    return spinners.length === 0 ||
+      Array.from(spinners).every(el => (el as HTMLElement).offsetParent === null);
+  }, { timeout }).catch(() => {});
+}
+```
+
+**Variante C — Tecnología desconocida / múltiple (universal):**
+```ts
+async function waitForPageIdle(page: Page, timeout = 20_000): Promise<void> {
+  await page.waitForLoadState('networkidle', { timeout });
+  await Promise.all([
+    page.waitForFunction(() => {
+      const prm = (window as any).Sys?.WebForms?.PageRequestManager?.getInstance?.();
+      return !prm || !prm.get_isInAsyncPostBack();
+    }, { timeout: 3_000 }).catch(() => {}),
+    page.waitForFunction(() => {
+      return !document.querySelector('.spinner, .loading, [aria-busy="true"]');
+    }, { timeout: 3_000 }).catch(() => {}),
+  ]);
 }
 ```
 
@@ -131,10 +165,10 @@ async function clickContinuar(page: Page, selector: string): Promise<void> {
 ## Flujo por pantalla (checklist)
 
 1. `await ss('NN-nombre-pantalla-inicio')`
-2. Llenar todos los `<select>` primero (pueden disparar AutoPostBack)
-3. Esperar `waitForPageIdle` tras cada select
-4. Llenar inputs de texto con `safeSetValue()` para campos JS-RESTRICTED
-5. Usar `setIfBlank()` para el resto
+2. Llenar primero los campos independientes, luego los **campos reactivos** (aquellos que disparan requests al servidor al cambiar — ver FASE 1 del skill para detección)
+3. Esperar `waitForPageIdle` tras cada campo reactivo
+4. Llenar campos dependientes DESPUÉS del `waitForPageIdle` del reactivo
+5. Para campos JS-RESTRICTED → usar `safeSetValue()`. Para el resto → `setIfBlank()`
 6. `await logEmptyFields(page, '#form1')` — diagnóstico visual
 7. `await ss('NN-nombre-pantalla-antes-continuar')`
 8. `await clickContinuar(page, SEL.formN.continuar)`

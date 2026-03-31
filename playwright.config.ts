@@ -8,7 +8,7 @@ export default defineConfig({
   retries: 0,
   reporter: 'html',
   use: {
-    baseURL: 'https://pdvpreprod.portaldevehiculos.com',
+    baseURL: 'https://<TU-APP-URL>',  // <- reemplazar con la URL de la app bajo prueba
     headless: false,
     viewport: { width: 1280, height: 720 },
     actionTimeout: 15_000,

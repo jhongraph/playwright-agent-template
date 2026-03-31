@@ -4,3 +4,6 @@ playwright-report/
 .playwright/
 dist/
 *.js.map
+
+data/reports.json
+test-results/

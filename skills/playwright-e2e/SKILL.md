@@ -1,6 +1,6 @@
 ---
 name: playwright-e2e
-description: 'Automatiza test cases manuales como pruebas E2E con Playwright + MCP Browser. Usar cuando el usuario pida crear, automatizar o generar tests E2E, pruebas automatizadas, scripts de Playwright, o convertir TCs manuales a código. Cubre descubrimiento de app vía browser MCP, Page Object con fixtures, manejo de ASP.NET WebForms/SPAs/Telerik, uploads, AutoPostBack, diálogos AJAX, PostBack ocultos, diagnóstico de fallos y screenshots. REQUIERE que el usuario provea: TC IDs + URL de la app + credenciales + rutas de archivos de datos (si aplica).'
+description: 'Automatiza test cases manuales como pruebas E2E con Playwright + MCP Browser. Usar cuando el usuario pida crear, automatizar o generar tests E2E, pruebas automatizadas, scripts de Playwright, o convertir TCs manuales a código. Cubre descubrimiento de app vía browser MCP, Page Object con fixtures, manejo de ASP.NET WebForms, React, Vue, Angular, SPAs, Telerik, uploads, campos reactivos (AutoPostBack/onChange con fetch), diálogos AJAX, elementos trigger ocultos, diagnóstico de fallos y screenshots. REQUIERE que el usuario provea: TC IDs + URL de la app + credenciales + rutas de archivos de datos (si aplica).'
 argument-hint: 'TC IDs + URL de la app (OBLIGATORIO) + credenciales + rutas de archivos. Ej: "TC 9360, 9361, URL: https://app.company.com, user: test1/pass123, Excel: C:\data\test.xlsx"'
 ---
 
@@ -190,11 +190,91 @@ Usuario dice "sigue sin codegen" →  Continuar con FASE 1 (Descubrimiento)
 | **IDs de todos los controles** | `Array.from(document.querySelectorAll('input,select,textarea,button,a')).map(e=>({tag:e.tagName,id:e.id,name:e.name,type:e.type,value:e.value,text:e.textContent?.trim().slice(0,40)}))` → copiar COMPLETO |
 | **IDs de botones de navegación** | `Array.from(document.querySelectorAll('button,input[type=submit],input[type=button],a')).map(e=>({id:e.id,name:e.name,text:e.textContent?.trim(),onclick:e.getAttribute('onclick')}))` |
 | Campos pre-llenados | ¿Qué campos llena el servidor automáticamente? |
-| Campos con AutoPostBack | ¿Qué selects disparan recarga al cambiar valor? |
+| Campos con AutoPostBack | Ejecutar query de detección obligatorio (ver abajo) — marcar en SEL cuáles necesitan `waitForPageIdle` |
 | Control de upload | ¿Input nativo? ¿Telerik RadAsyncUpload? ¿Dropzone? |
 | Popups/modales | ¿Hay confirmaciones intermedias? |
 | Validaciones cliente | ¿CustomValidators? ¿Required field validators? |
 | Botones de navegación | Selector del botón Continuar/Siguiente/Enviar |
+
+### Detección de Campos Reactivos — OBLIGATORIO en TODA tecnología
+
+> **Concepto universal**: Un *campo reactivo* es cualquier campo (`input`, `select`, `textarea`) cuya interacción (change, blur) dispara una llamada al servidor que puede **resetear, rellenar o deshabilitar otros campos**. Existe en WebForms, React, Vue, Angular y cualquier otro framework.
+>
+> ⛔ **REGLA**: Ejecutar la detección en **cada pantalla con formularios**, antes de escribir código. Marcar cada campo reactivo en el SEL con `// ⚡ Reactivo` y aplicar `waitForPageIdle` después de interactuar con él.
+
+#### Paso 1 — Detectar tecnología primero
+
+```js
+const tech = {
+  webforms: !!document.querySelector('#__VIEWSTATE'),
+  telerik:  !!window.Telerik,
+  react:    !!document.querySelector('[data-reactroot], #root') && !!(window).__REACT_DEVTOOLS_GLOBAL_HOOK__,
+  vue:      !!(window).__vue_app__ || !!(window).Vue,
+  angular:  !!document.querySelector('[ng-version]') || !!(window).ng,
+};
+console.log(tech);
+```
+
+#### Paso 2 — Query de detección según tecnología
+
+**ASP.NET WebForms** — buscar `__doPostBack` en atributos del DOM:
+```js
+Array.from(document.querySelectorAll('input, select, textarea'))
+  .filter(e => ['onchange','onblur','onfocus','onclick']
+    .some(a => (e.getAttribute(a) || '').includes('__doPostBack')))
+  .map(e => ({ id: e.id, tag: e.tagName, type: e.type,
+    onchange: e.getAttribute('onchange'), onblur: e.getAttribute('onblur') }));
+```
+
+**React / Vue / Angular** — los handlers están en el VDOM, no en atributos del DOM. Usar observación de red:
+```ts
+// En el spec, durante la exploración — registrar requests que disparan al interactuar con cada campo
+const reactiveFields: string[] = [];
+page.on('request', req => {
+  if (req.resourceType() === 'xhr' || req.resourceType() === 'fetch') {
+    console.log(`[XHR al interactuar] ${req.method()} ${req.url()}`);
+  }
+});
+// Ahora interactuar con cada campo sospechoso individualmente y observar el log
+// Si un campo dispara una request → es reactivo → marcarlo
+```
+
+**Universal (cualquier tecnología)** — observar el tráfico de red al llenar cada campo:
+```ts
+// Helper para detectar si una acción dispara requests
+async function isReactive(page: Page, action: () => Promise<void>): Promise<boolean> {
+  let fired = false;
+  const handler = () => { fired = true; };
+  page.on('request', handler);
+  await action();
+  await page.waitForTimeout(500); // ventana de detección
+  page.off('request', handler);
+  return fired;
+}
+// Uso: if (await isReactive(page, () => page.locator('#mySelect').selectOption('X'))) → reactivo
+```
+
+#### Paso 3 — Mapear al fixture y al spec
+
+**En el fixture** — marcar cada campo reactivo:
+```ts
+export const SEL = {
+  s1: {
+    vinInput:      '#MainContent_ucCarRegistration_txtVIN',        // ⚡ Reactivo — llena datos del vehículo
+    plate:         '#MainContent_ucCarRegistration_txtPlateNumber', // ⚡ Reactivo — resetea marbete
+    licenseNumber: '#MainContent_ucCarRegistration_txtLicense',    // depende de vinInput
+    sticker:       '#MainContent_ucCarRegistration_txtSticker',    // depende de plate
+  },
+};
+```
+
+**En el spec** — patrón obligatorio para cualquier campo reactivo:
+```ts
+// Patrón universal — campo reactivo → waitForPageIdle → campos dependientes
+await page.locator(SEL.s1.vinInput).fill(vin);
+await waitForPageIdle(page);                           // esperar que el servidor complete
+await page.locator(SEL.s1.licenseNumber).fill(data.license); // campo que dependía del reactivo
+```
 
 ### Detección de Tecnología
 
@@ -333,13 +413,18 @@ export const SEL = {
 
 ### REGLA 1 — Esperar SIEMPRE antes de actuar
 
-```ts
-async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
-  await page.waitForLoadState('networkidle', { timeout });
-}
+> La implementación de `waitForPageIdle` depende de la tecnología detectada en FASE 1.
+> Usar la variante correcta para el framework — NO mezclarlas.
+
+**Paso 1 — Detectar tecnología** (ya hecho en FASE 1, usar el resultado):
+
+```
+webforms: true  → usar Variante A
+react/vue/angular: true → usar Variante B
+tecnología desconocida → usar Variante C (universal)
 ```
 
-**ASP.NET WebForms** — agregar verificación de UpdatePanel:
+**Variante A — ASP.NET WebForms / UpdatePanel:**
 ```ts
 async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout });
@@ -350,13 +435,35 @@ async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
 }
 ```
 
-**SPAs (React/Angular)** — esperar que desaparezcan spinners:
+**Variante B — SPAs (React / Vue / Angular) — esperar que desaparezcan indicadores de carga:**
 ```ts
 async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout });
   await page.waitForFunction(() => {
-    return !document.querySelector('.spinner, .loading, [class*="skeleton"]');
-  }, { timeout });
+    const spinners = document.querySelectorAll(
+      '.spinner, .loading, [class*="skeleton"], [class*="loading"], [aria-busy="true"]'
+    );
+    return spinners.length === 0 || Array.from(spinners).every(
+      el => (el as HTMLElement).offsetParent === null
+    );
+  }, { timeout }).catch(() => {}); // no fallar si no hay spinners
+}
+```
+
+**Variante C — Universal (tecnología desconocida o múltiple):**
+```ts
+async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
+  await page.waitForLoadState('networkidle', { timeout });
+  // Intentar WebForms + spinners como cobertura amplia
+  await Promise.all([
+    page.waitForFunction(() => {
+      const prm = (window as any).Sys?.WebForms?.PageRequestManager?.getInstance?.();
+      return !prm || !prm.get_isInAsyncPostBack();
+    }, { timeout: 3_000 }).catch(() => {}),
+    page.waitForFunction(() => {
+      return !document.querySelector('.spinner, .loading, [aria-busy="true"]');
+    }, { timeout: 3_000 }).catch(() => {}),
+  ]);
 }
 ```
 
@@ -385,11 +492,25 @@ async function setIfBlank(
 }
 ```
 
-### REGLA 3 — Orden de llenado en páginas con AutoPostBack
+### REGLA 3 — Orden de llenado en páginas con Campos Reactivos
 
-1. Llenar TODOS los `<select>` primero (cada uno espera `waitForPageIdle`)
-2. Llenar `<input type="text">` DESPUÉS del último select
-3. Campos que el servidor resetea frecuentemente → llenar AL FINAL
+> Aplica a cualquier tecnología (WebForms, React, Vue, Angular). El principio es el mismo: un campo reactivo dispara una operación asíncrona que puede resetear o rellenar otros campos.
+
+1. Identificar campos reactivos (FASE 1 — Detección de Campos Reactivos)
+2. Llenar primero los campos que NO son reactivos ni dependen de otros
+3. Llenar campos reactivos y hacer `waitForPageIdle` después de cada uno
+4. Llenar DESPUÉS los campos que dependen del resultado del campo reactivo
+5. Campos que el servidor puede resetear → llenar siempre al FINAL, tras confirmar que no hay más postbacks pendientes
+
+**Orden recomendado en formularios típicos:**
+```
+1. Selects independientes (categorías, tipos — sin dependencias)
+2. Campos de texto independientes (precio, descripción)
+3. ⚡ Campos reactivos (e.g. VIN lookup, plate lookup) → waitForPageIdle después de cada uno
+4. Campos que el reactivo puede rellenar/resetear (e.g. datos del vehículo, marbete)
+5. Date pickers (si disparan events, tratar como reactivos)
+6. Campos que dependen de los date pickers → llenar al final
+```
 
 ### REGLA 4 — Click seguro en botones de navegación
 
@@ -530,39 +651,45 @@ await confirmBtn.click();
 await waitForPageIdle(page);
 ```
 
-### REGLA 8b — Botones PostBack Ocultos (ASP.NET WebForms) ⚠️
+### REGLA 8b — Elementos Trigger Ocultos ⚠️
 
-> En apps ASP.NET WebForms/UpdatePanel, hay un patrón de **botones `display:none`** usados
-> exclusivamente como triggers de `__doPostBack`. **NUNCA son visibles para el usuario**.
-> Son disparados automáticamente por JavaScript del lado cliente (polling, timers, callbacks).
+> Existe en **cualquier framework**: botones o inputs `display:none` que son disparados programáticamente por JavaScript (timers, callbacks AJAX, polling). El usuario nunca los ve ni los clickea — son disparadores internos del framework.
+>
+> - **ASP.NET WebForms**: `input[type=submit]` oculto que llama `__doPostBack`
+> - **React/Vue**: `<button>` oculto que `formRef.current.requestSubmit()` dispara
+> - **Angular**: `input` oculto conectado a un `FormGroup.submit()` programático
 
-**Síntoma:** `await expect(page.locator('#btnX')).toBeVisible()` → timeout perpetuo.
+**Síntoma universal:** `await expect(page.locator('#btnX')).toBeVisible()` → timeout perpetuo.
+
 **Diagnóstico:**
 ```js
-const el = document.getElementById('MainContent_btnX');
-console.log(el?.style.display, el?.type); // → "none", "submit"
-// Buscar en scripts el patrón:
-const scripts = Array.from(document.querySelectorAll('script')).map(s => s.textContent).join('');
-const idx = scripts.indexOf('btnX');
-console.log(scripts.substring(idx - 200, idx + 300));
-// Si aparece __doPostBack('...btnX...', '') → es un trigger automático
+// Verificar si el elemento existe pero está oculto
+const el = document.getElementById('btnX') || document.querySelector('[data-action="trigger"]');
+console.log({
+  exists:  !!el,
+  display: el?.style.display,        // 'none' → oculto intencionalmente
+  type:    el?.type,
+  onclick: el?.getAttribute('onclick'),
+  // WebForms: buscar __doPostBack
+  // React: buscar en bundle si hay .click() programático sobre este ID
+});
 ```
 
-**Solución:** NO clickear el botón. En cambio, **esperar el resultado** del PostBack:
+**Solución universal:** NO clickear el elemento oculto. **Esperar el resultado** de la operación que dispara:
 ```ts
-// ❌ INCORRECTO — este botón nunca será visible
+// ❌ INCORRECTO — este elemento nunca será visible
 await expect(page.locator('#MainContent_btnLoadResults')).toBeVisible({ timeout: 30_000 });
 await page.locator('#MainContent_btnLoadResults').click();
 
-// ✅ CORRECTO — el botón auto-dispara JS que transiciona a Paso 4
-// Esperar directamente el contenido resultante (panel, botón, tabla)
+// ✅ CORRECTO — esperar directamente el contenido que aparece tras la operación
 await expect(page.locator('#resultsSection')).toBeVisible({ timeout: 120_000 });
-await expect(page.locator('#MainContent_btnVerResultados')).toBeVisible();
+// O el siguiente botón/panel que la operación habilita
+await expect(page.locator('#MainContent_btnVerResultados')).toBeVisible({ timeout: 120_000 });
 ```
 
-> **Timeout largo para procesamiento:** Si el botón auto-dispara **después** de un proceso
-> asíncrono (AJAX polling, colas de trabajo), usar timeout de 60–120 segundos en el
-> `expect` del resultado, no en el botón.
+> **Timeout largo para procesamiento:** Si el elemento trigger opera después de un proceso
+> asíncrono (polling, colas de trabajo, procesamiento batch), usar timeout de 60–120 segundos
+> en el `expect` del resultado, no intentar interactuar con el trigger.
 
 ---
 
@@ -636,6 +763,24 @@ testInfo.annotations.push({
    │
    └─ ⛔ NO pasar al paso 3 hasta tener el 100% de selectores catalogados
    ↓
+2.5 Verificación en vivo — ⛔ BLOQUEANTE antes de construir
+   Con el catálogo de selectores completo, usar MCP Browser para recorrer el flujo
+   SIN escribir código — solo confirmando que cada selector responde en el DOM real:
+   │
+   ├─ Por cada selector del catálogo:
+   │   1. `document.querySelector('#el-id')` → ¿retorna el elemento?
+   │   2. Para campos reactivos: interactuar y observar si dispara el request esperado
+   │   3. Para botones de navegación: verificar visible + enabled
+   │   4. Para uploads: verificar que input file existe y es accesible
+   │
+   ├─ Si un selector NO responde:
+   │   → Investigar causa (iframe? shadow DOM? carga dinámica? condicional?)
+   │   → Corregir el selector en el catálogo
+   │   → Re-verificar hasta que responda
+   │
+   └─ ⛔ NO avanzar a construcción hasta que el 100% de selectores estén verificados en vivo
+        Un selector que falla aquí fallará en el test — mejor resolverlo antes de codificar
+   ↓
 3. Crear archivos:
    - fixtures/<nombre>.fixture.ts (SEL + TEST_DATA + helpers)
    - tests/<nombre>.spec.ts
@@ -656,7 +801,18 @@ testInfo.annotations.push({
    ↓
 6. Primera ejecución: npx playwright test mi-flujo --headed --reporter=list
    ↓
-7. Si falla → screenshot + error → regla de FASE 3 → corregir → repetir
+7. Si falla:
+   a. Leer el reporte HTML + screenshots adjuntos → entender estado visual
+   b. Leer el error exacto del terminal
+   c. ⛔ ANTES de tocar el código — volver a MCP Browser con los selectores guardados:
+      → Navegar a la pantalla donde falló
+      → Verificar el selector que falló: `document.querySelector('#id')` → ¿responde?
+      → Si es campo reactivo: interactuar y observar si el request se dispara
+      → Si es resultado esperado: ¿apareció en el DOM? ¿con qué selector real?
+      → Reproducir manualmente la acción fallida y observar
+   d. Solo con causa clara y confirmada en el DOM real → corregir → re-ejecutar
+   e. NUNCA refactorizar ni hacer fix sin diagnóstico previo confirmado en MCP
+   f. NUNCA repetir el mismo click/acción sin cambio previo
 ```
 
 ---
@@ -1093,3 +1249,4 @@ mcp_ado_wit_update_work_item({
 | Usuario no responde tras codegen prompt | **NUNCA continuar sin respuesta explícita.** El agente ya cedió el turno en PASO 3. Esperar. |
 | Múltiples TCs en batch | Fetchear todos con `get_work_items_batch_by_ids` (llamada única). Ejecutar y depurar TC por TC con `--grep`. Suite completa solo cuando todos pasan individualmente. |
 | Error repetido sin causa identificada | Nunca reintentar sin corregir. Inspeccionar DOM/red vía MCP para entender el estado real de la app. |
+
