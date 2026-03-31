@@ -13,6 +13,40 @@ Skill para convertir test cases manuales en pruebas E2E automatizadas con Playwr
 
 ---
 
+## ⛔ CHECKLIST DE DISCOVERY TECNOLÓGICO — OBLIGATORIO antes de FASE 1
+
+> Este checklist debe completarse **antes de escribir una sola línea de código**.
+> Cada pregunta sin responder es un error de asunción que costará múltiples prompts de corrección.
+
+Ejecutar este script en MCP Browser en la primera pantalla de la app:
+
+```js
+const tech = {
+  webforms: !!document.querySelector('#__VIEWSTATE'),
+  telerik:  !!window.Telerik || !!document.querySelector('[class*="RadUpload"],[id*="RadCalendar"]'),
+  react:    !!(window).__REACT_DEVTOOLS_GLOBAL_HOOK__ || !!document.querySelector('[data-reactroot],#root'),
+  vue:      !!(window).__vue_app__ || !!(window).Vue,
+  angular:  !!(window).ng || !!document.querySelector('[ng-version]'),
+  ajax:     !!document.querySelector('#__VIEWSTATE') && typeof Sys !== 'undefined',
+};
+console.log(JSON.stringify(tech));
+```
+
+Luego responder estas 5 preguntas antes de avanzar:
+
+| # | Pregunta | Impacto si no se responde |
+|---|---|---|
+| 1 | ¿Qué tecnología usa el stack? (`webforms` / `react` / `vue` / `angular` / `telerik`) | Elegir variante incorrecta de `waitForPageIdle` → timeouts |
+| 2 | ¿Hay campos reactivos en este formulario? (`onchange=__doPostBack` / `onChange fetch`) | Llenar campos en orden incorrecto → servidor los resetea |
+| 3 | ¿Hay calendarios / date pickers? (¿Nativo `input[type=date]`? ¿Telerik RadDatePicker? ¿custom JS?) | `fill()` no funciona → campo queda vacío |
+| 4 | ¿Hay upload de archivos? (¿Input nativo? ¿Telerik RadAsyncUpload? ¿Dropzone?) | `setInputFiles()` sin espera → upload no confirmado → Continuar falla |
+| 5 | ¿Hay diálogos `confirm` / `alert` JS antes o después de acciones clave? | Dialog bloquea → test cuelga |
+
+> Si la respuesta a cualquier pregunta 3, 4 o 5 es **sí** → leer el playbook correspondiente en
+> la sección **TECHNOLOGY PLAYBOOKS** antes de escribir código.
+
+---
+
 ## FASE 0 — Preparación del Entorno
 
 ### Estructura de Proyecto
@@ -281,15 +315,194 @@ await page.locator(SEL.s1.licenseNumber).fill(data.license); // campo que depend
 ```js
 // ASP.NET WebForms
 !!document.querySelector('#__VIEWSTATE')
-
 // ASP.NET con Telerik
 !!window.Telerik || !!document.querySelector('[class*="RadUpload"]')
-
 // React SPA
 !!document.querySelector('#root') && !!window.__REACT_DEVTOOLS_GLOBAL_HOOK__
-
 // Angular
 !!window.ng || !!document.querySelector('[ng-version]')
+```
+
+---
+
+## TECHNOLOGY PLAYBOOKS — Patrones por tecnología
+
+> Si el discovery confirmó alguna de estas tecnologías, leer el playbook
+> correspondiente COMPLETO antes de escribir el fixture.
+
+---
+
+### PLAYBOOK A — ASP.NET WebForms + Telerik
+
+#### Señales de identificación
+- `document.querySelector('#__VIEWSTATE')` → `true`
+- `window.Telerik` → `true` o presencia de `[class*="RadCalendar"],[class*="RadUpload"]`
+
+#### Patrón 1 — `waitForPageIdle` correcto para WebForms
+```ts
+async function waitForPageIdle(page: Page, timeout = 20_000): Promise<void> {
+  await page.waitForLoadState('networkidle', { timeout });
+  await page.waitForFunction(() => {
+    const prm = (window as any).Sys?.WebForms?.PageRequestManager?.getInstance?.();
+    return !prm || !prm.get_isInAsyncPostBack();
+  }, { timeout });
+}
+```
+> ⚠️ `networkidle` solo NO es suficiente en WebForms con UpdatePanel. Siempre combinar con `PageRequestManager`.
+
+#### Patrón 2 — Campos que resetean otros (AutoPostBack)
+```ts
+// Detectar en MCP antes de codificar:
+Array.from(document.querySelectorAll('select,input')).filter(e =>
+  (e.getAttribute('onchange') || '').includes('__doPostBack')
+).map(e => ({ id: e.id, onchange: e.getAttribute('onchange') }))
+
+// En el spec — orden OBLIGATORIO:
+await page.locator(SEL.campoReactivo).selectOption(valor);  // 1. campo reactivo
+await waitForPageIdle(page);                                 // 2. esperar postback completo
+await page.locator(SEL.campoDependiente).fill(valor2);      // 3. SOLO después del idle
+```
+
+#### Patrón 3 — Calendarios Telerik RadDatePicker
+```ts
+// ❌ fill() NO funciona con Telerik RadDatePicker
+// ✅ Usar evaluate() para setear el valor directamente en el input de texto del picker
+async function setRadDatePicker(page: Page, selector: string, dateStr: string): Promise<void> {
+  // dateStr en formato que el picker acepta, ej: '3/31/2026' o '31/3/2026'
+  // Verificar formato en MCP: document.getElementById('ID').value
+  const rawId = selector.startsWith('#') ? selector.slice(1) : selector;
+  await page.evaluate((args: { id: string; val: string }) => {
+    const el = document.getElementById(args.id) as HTMLInputElement;
+    if (!el) return;
+    el.value = args.val;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur',   { bubbles: true }));
+  }, { id: rawId, val: dateStr });
+  await waitForPageIdle(page);
+}
+
+// Para seleccionar la fecha de hoy en un RadDatePicker:
+async function selectToday(page: Page, selector: string): Promise<void> {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  // Probar primero MM/DD/YYYY, ajustar si el picker usa otro formato
+  await setRadDatePicker(page, selector, `${mm}/${dd}/${yyyy}`);
+}
+```
+> ⚠️ Verificar el formato de fecha aceptado por el picker en MCP antes de hardcodear.
+> Ejecutar: `document.getElementById('ID_DEL_PICKER').value` después de seleccionar manualmente.
+
+#### Patrón 4 — Campos JS-RESTRICTED (oninput/onkeypress validadores)
+```ts
+// Detectar en MCP:
+Array.from(document.querySelectorAll('input[oninput],input[onkeypress]'))
+  .map(e => ({ id: e.id, oninput: e.getAttribute('oninput'), onkeypress: e.getAttribute('onkeypress') }))
+
+// Si tiene validator → fill() deja el campo vacío → usar evaluate:
+async function safeSetValue(page: Page, selector: string, value: string): Promise<void> {
+  const loc = page.locator(selector);
+  await loc.click();
+  await loc.fill(value);
+  const current = await loc.inputValue().catch(() => '');
+  if (!current || current.replace(/[^a-zA-Z0-9]/g, '') === '') {
+    const rawId = selector.startsWith('#') ? selector.slice(1) : selector;
+    await page.evaluate((args: { id: string; val: string }) => {
+      const el = document.getElementById(args.id) as HTMLInputElement;
+      if (!el) return;
+      el.value = args.val;
+      el.dispatchEvent(new Event('input',  { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }, { id: rawId, val: value });
+  }
+}
+```
+
+---
+
+### PLAYBOOK B — React / Vue / Angular (SPA)
+
+#### Señales de identificación
+- React: `window.__REACT_DEVTOOLS_GLOBAL_HOOK__` o `document.querySelector('[data-reactroot],#root')`
+- Vue: `window.__vue_app__` o `window.Vue`
+- Angular: `window.ng` o `document.querySelector('[ng-version]')`
+
+#### Patrón 1 — `waitForPageIdle` correcto para SPA
+```ts
+async function waitForPageIdle(page: Page, timeout = 20_000): Promise<void> {
+  await page.waitForLoadState('networkidle', { timeout });
+  await page.waitForFunction(() => {
+    const spinners = document.querySelectorAll(
+      '.spinner,.loading,[class*="skeleton"],[class*="loading"],[aria-busy="true"]'
+    );
+    return spinners.length === 0 ||
+      Array.from(spinners).every(el => (el as HTMLElement).offsetParent === null);
+  }, { timeout: 5_000 }).catch(() => {});
+}
+```
+
+#### Patrón 2 — Campos reactivos en SPA (onChange → fetch)
+```ts
+// Los handlers están en el VDOM — no aparecen en atributos del DOM.
+// Detectar observando el tráfico de red al interactuar manualmente en MCP:
+page.on('request', req => {
+  if (req.resourceType() === 'xhr' || req.resourceType() === 'fetch')
+    console.log(`[SPA XHR] ${req.method()} ${req.url()}`);
+});
+// Llenar el campo sospechoso → si aparece un XHR → es reactivo → aplicar waitForPageIdle después
+```
+
+#### Patrón 3 — Date pickers custom en SPA
+```ts
+// La mayoría de date pickers SPA (MUI DatePicker, Vuetify, ng-datepicker)
+// sí responden a fill() en su input interno, pero requieren blur para confirmar:
+const dateInput = page.locator('[data-testid="date-input"], input[placeholder*="fecha"], input[type="date"]');
+await dateInput.fill(dateStr);  // formato ISO: 'YYYY-MM-DD'
+await dateInput.press('Tab');   // blur para disparar onChange
+await waitForPageIdle(page);
+
+// Si fill() no funciona → usar keyboard:
+await dateInput.click();
+await dateInput.type(dateStr);
+await dateInput.press('Enter');
+```
+
+#### Patrón 4 — Errores visibles post-submit en SPA
+```ts
+// Los errores en SPA no usan aspNetValidationSummary — buscar por aria-invalid:
+const errors = page.locator('[aria-invalid="true"], .error-message, [class*="error"][class*="text"]');
+const errorCount = await errors.count();
+if (errorCount > 0) {
+  const msgs = await errors.allTextContents();
+  console.warn('[SPA Errors]', msgs);
+}
+```
+
+---
+
+### PLAYBOOK C — Tabla de señales de Upload por widget
+
+Antes de codificar el upload, identificar el tipo en MCP:
+
+| Widget | Señal en el DOM | `setInputFiles()` directo | Necesita `waitForResponse` | Delay entre uploads |
+|---|---|---|---|---|
+| Input nativo `<input type="file">` | `input[type="file"]` visible o hidden | ✅ sí | ❌ no | ❌ no |
+| Telerik RadAsyncUpload | `[class*="RadUpload"],[class*="ruInputs"]` | ✅ sí (en el input interno) | ✅ sí — `WebResource.axd` | ✅ **1.5s obligatorio** |
+| Telerik RadUpload (sync) | `[class*="RadUpload"]` sin XHR | ✅ sí | ❌ no (submit final) | ❌ no |
+| Dropzone.js / FilePond | `[class*="dropzone"],[class*="filepond"]` | ✅ sí (input oculto interno) | depende del config | ❌ no |
+| AWS S3 presigned upload | form `action` con `s3.amazonaws.com` | ✅ sí | ✅ sí — URL s3 | ❌ no |
+| Custom AJAX `<input>` | XHR a API propia al `change` | ✅ sí | ✅ sí — endpoint propio | ❌ no |
+
+**Confirmación de upload exitoso — buscar en MCP la señal correcta para este widget:**
+```js
+// ¿Qué cambia en el DOM cuando el upload termina?
+// - ¿Aparece el nombre del archivo en alguna celda/span?
+// - ¿Desaparece el input y aparece un botón de eliminar?
+// - ¿Cambia el texto de un label?
+// Ejecutar ANTES y DESPUÉS de subir manualmente para ver la diferencia.
+Array.from(document.querySelectorAll('[id*="upload"],[id*="document"],[id*="file"]'))
+  .map(e => ({ id: e.id, text: e.textContent?.trim().slice(0,40), visible: e.offsetParent !== null }))
 ```
 
 ---
@@ -352,8 +565,6 @@ test.describe('Mi Flujo E2E', () => {
 ---
 
 ## FASE 3 — Reglas de Implementación
-
-Ver [reglas detalladas](./references/implementation-rules.md) para el código completo de cada regla.
 
 ### REGLA 0 — Prioridad OBLIGATORIA de Localizadores ⚠️ BLOQUEANTE
 
@@ -1366,5 +1577,4 @@ mcp_ado_wit_update_work_item({
 | Usuario no responde tras codegen prompt | **NUNCA continuar sin respuesta explícita.** El agente ya cedió el turno en PASO 3. Esperar. |
 | Múltiples TCs en batch | Fetchear todos con `get_work_items_batch_by_ids` (llamada única). Ejecutar y depurar TC por TC con `--grep`. Suite completa solo cuando todos pasan individualmente. |
 | Error repetido sin causa identificada | Nunca reintentar sin corregir. Inspeccionar DOM/red vía MCP para entender el estado real de la app. |
-
 
