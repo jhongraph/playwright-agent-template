@@ -709,25 +709,142 @@ await ss('s2-inicio');
 
 ### REGLA 10 — File Uploads
 
-**Tipo A — Input nativo:**
-```ts
-await page.locator('#fileInput').setInputFiles('fixtures/files/dummy.pdf');
+#### Paso 0 — Descubrimiento obligatorio antes de escribir código (MCP Browser)
+
+Antes de escribir NADA, navegar a la pantalla de documentos en MCP Browser y ejecutar:
+
+```js
+// 1. Entender la estructura de la tabla de documentos
+Array.from(document.querySelectorAll('tr')).filter(tr => tr.querySelector('input[type="file"]')).map(tr => ({
+  id: tr.id,
+  cells: Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim().slice(0,30)),
+  inputId: tr.querySelector('input[type="file"]')?.id,
+}))
+
+// 2. Identificar cuál columna marca el campo requerido (ej: 'X', '*', 'SI', etc.)
+// 3. Verificar si hay control Telerik:
+!!document.querySelector('[class*="RadUpload"],[class*="ruInputs"],[id*="RadUpload"]')
 ```
 
-**Tipo B — Telerik RadAsyncUpload:**
+Resultado esperado antes de proceder:
+- Sé el selector de cada fila de documento (`tr[id^="gvwDocuments_tr_"]` o similar)
+- Sé qué columna (índice) indica si el documento es requerido y qué valor tiene (`X`, `*`, `Sí`, etc.)
+- Sé el `id` del `input[type="file"]` dentro de cada fila
+- Sé si es Telerik RadAsyncUpload o input nativo
+
+---
+
+#### Paso 1 — Detectar filas requeridas dinámicamente
+
+> ⚠️ NUNCA hardcodear los IDs de los inputs de upload. La cantidad y el ID de cada fila
+> pueden variar por configuración del servidor. Siempre descubrirlas en runtime.
+
 ```ts
-const uploadDone = page.waitForResponse(
-  resp => resp.url().includes('WebResource.axd') && resp.status() === 200,
-  { timeout: 15_000 },
+// Ajustar el selector de fila y el índice de columna según lo descubierto en MCP
+const requiredRows = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('tr[id^="gvwDocuments_tr_"]'))
+    .filter(tr => {
+      const cells = Array.from(tr.querySelectorAll('td'));
+      // cells[2] = columna "Requerido" — verificar índice correcto en MCP
+      return cells[2]?.textContent?.trim() === 'X' && !!tr.querySelector('input[type="file"]');
+    })
+    .map(tr => ({
+      rowId:   tr.id,
+      inputId: (tr.querySelector('input[type="file"]') as HTMLInputElement)?.id ?? '',
+    }))
 );
-await fileInput.setInputFiles(DUMMY_PDF);
-await uploadDone;
+console.log(`[Upload] requeridos: ${requiredRows.map(r => r.rowId).join(', ')}`);
 ```
 
-**Tipo C — Dropzone:**
+---
+
+#### Paso 2 — Upload con confirmación real
+
+**Tipo A — Input nativo (confirmar por cambio en texto de la celda):**
 ```ts
-const input = page.locator('input[type="file"]');
+for (const { rowId, inputId } of requiredRows) {
+  const input = page.locator(`#${inputId}`);
+  if (await input.count() === 0) { console.log(`[Upload SKIP] ${rowId}: ya subido o sin input`); continue; }
+
+  await input.setInputFiles(DUMMY_PDF, { timeout: 8_000 });
+
+  // Confirmación real: esperar que la celda "Archivo" (cells[1]) muestre el nombre del archivo
+  await page.waitForFunction(
+    (id: string) => {
+      const row = document.getElementById(id);
+      if (!row) return false;
+      const cells = Array.from(row.querySelectorAll('td'));
+      const archivo = cells[1]?.textContent?.trim() ?? '';
+      return archivo !== '' && !archivo.toLowerCase().includes('drop');
+    },
+    rowId,
+    { timeout: 30_000 },
+  );
+  console.log(`[Upload ✓] ${rowId}`);
+}
+```
+
+**Tipo B — Telerik RadAsyncUpload (esperar XHR `WebResource.axd` + confirmar celda):**
+```ts
+for (const { rowId, inputId } of requiredRows) {
+  const input = page.locator(`#${inputId}`);
+  if (await input.count() === 0) { continue; }
+
+  // Registrar listener ANTES del setInputFiles
+  const uploadDone = page.waitForResponse(
+    resp => resp.url().includes('WebResource.axd') && resp.status() === 200,
+    { timeout: 30_000 },
+  );
+  await input.setInputFiles(DUMMY_PDF);
+  await uploadDone;  // esperar que el servidor procese el temp file
+
+  // Confirmación adicional: celda de nombre de archivo no vacía
+  await page.waitForFunction(
+    (id: string) => {
+      const row = document.getElementById(id);
+      const cells = Array.from(row?.querySelectorAll('td') ?? []);
+      const archivo = cells[1]?.textContent?.trim() ?? '';
+      return archivo !== '' && !archivo.toLowerCase().includes('drop');
+    },
+    rowId,
+    { timeout: 15_000 },
+  );
+
+  // ⚠️ CRÍTICO para Telerik: esperar 1.5s entre uploads para que los temp files
+  // del servidor tengan timestamps distintos y no colisionen en App_Data\\RadUploadTemp
+  await page.waitForTimeout(1500);
+  console.log(`[Upload Telerik ✓] ${rowId}`);
+}
+```
+
+**Tipo C — Dropzone / drag-and-drop:**
+```ts
+// Buscar el input oculto dentro del dropzone y usar setInputFiles directamente
+const input = page.locator('.dropzone input[type="file"], [data-upload] input[type="file"]').first();
 await input.setInputFiles('fixtures/files/dummy.pdf');
+```
+
+---
+
+#### Paso 3 — Validar conteo antes de continuar
+
+```ts
+const totalRequeridos = requiredRows.length;
+const totalSubidos = /* contador de los que confirmaron */ uploadedCount;
+console.log(`[Upload] ${totalSubidos}/${totalRequeridos} confirmados`);
+// No hacer assert duro aquí — si el servidor rechazó alguno, el Continuar lo marcará
+```
+
+---
+
+#### Señales de error a detectar en pantalla post-upload
+
+Antes del click Continuar, verificar con MCP si hay mensajes de error:
+```js
+// Buscar mensajes de error/validación visibles en la tabla de documentos
+Array.from(document.querySelectorAll('[class*="error"],[class*="alert"],[class*="validation"],[aria-invalid]'))
+  .filter(e => e.offsetParent !== null)
+  .map(e => ({ id: e.id, text: e.textContent?.trim().slice(0,80) }))
 ```
 
 ### REGLA 11 — Checkboxes con click real
@@ -1249,4 +1366,5 @@ mcp_ado_wit_update_work_item({
 | Usuario no responde tras codegen prompt | **NUNCA continuar sin respuesta explícita.** El agente ya cedió el turno en PASO 3. Esperar. |
 | Múltiples TCs en batch | Fetchear todos con `get_work_items_batch_by_ids` (llamada única). Ejecutar y depurar TC por TC con `--grep`. Suite completa solo cuando todos pasan individualmente. |
 | Error repetido sin causa identificada | Nunca reintentar sin corregir. Inspeccionar DOM/red vía MCP para entender el estado real de la app. |
+
 

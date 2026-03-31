@@ -88,9 +88,25 @@ Usar assert duro SOLO en el resultado final (número de caso, confirmación).
 
 ## REGLA 8 — Uploads
 
-- Input nativo: `setInputFiles()`
-- Telerik RadAsyncUpload: esperar `WebResource.axd` response
-- Validar que el archivo llegó al servidor antes de continuar
+> Ver patrón completo con código en `REGLA 10` del skill `playwright-e2e`.
+
+**Orden obligatorio — no saltarse pasos:**
+
+1. **Descubrir** en MCP Browser la estructura de la tabla antes de escribir código:
+   - Selector de cada fila de documento
+   - Índice de columna que indica "requerido" y el valor que usa (`X`, `*`, `Sí`, etc.)
+   - ID del `input[type="file"]` dentro de cada fila
+   - ¿Telerik RadAsyncUpload o input nativo? → buscar `[class*="RadUpload"]`
+
+2. **Detectar filas requeridas en runtime** — NUNCA hardcodear IDs de inputs de upload.
+   Usar `page.evaluate()` para filtrar las filas por la columna requerido.
+
+3. **Confirmar upload realmente** — NO asumir que `setInputFiles()` fue suficiente.
+   Esperar a que la celda "Archivo" (o equivalente) cambie de vacía a nombre del archivo.
+
+4. **Para Telerik RadAsyncUpload:** registrar `waitForResponse('WebResource.axd')` ANTES del `setInputFiles()`. Esperar 1.5s entre uploads — los temp files en `App_Data\RadUploadTemp` necesitan timestamps distintos o colisionan.
+
+5. **No hacer assert duro** del conteo — si faltó un archivo, el botón Continuar lo rechazará y se captura en el siguiente paso.
 
 ---
 
