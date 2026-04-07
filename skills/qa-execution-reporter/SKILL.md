@@ -1,6 +1,6 @@
 # Skill: qa-execution-reporter
 
-Execute ADO Test Plans with Playwright, capture annotated screenshots, and upload all evidence back to ADO.
+Execute ADO Test Plans with Playwright, capture screenshots, and upload all evidence back to ADO.
 Zero manual steps — user only needs to verify results in ADO afterwards.
 
 ---
@@ -64,6 +64,8 @@ When the PAT is needed, say EXACTLY this to the user:
 
 All scripts MUST read the PAT exclusively via `process.env.ADO_PAT`. Never hardcode, never log it.
 
+When the user confirms the PAT is set: acknowledge briefly ("Perfecto, continuando...") and immediately proceed to execute `upload-evidence.js` — do NOT ask again or wait for further input.
+
 ---
 
 ## PHASE 2 — ENVIRONMENT VERIFICATION & SETUP
@@ -111,7 +113,7 @@ If it doesn't exist, create it.
 ```powershell
 cd TPlans
 npm init -y          # only if package.json doesn't exist
-npm install playwright sharp
+npm install playwright
 npx playwright install chromium
 ```
 
@@ -163,21 +165,18 @@ The script must:
 - Be **fully dynamic** — no hardcoded test case names, IDs, or selectors
 - Read APP_URL and credentials from variables at the top (set from collected data)
 - Use `headless: true` for execution
-- Use `annotate.js` for screenshot annotation (copy it to TPlans/ if not present)
+- Save screenshots as-is (no post-processing or annotation)
 - Save screenshots to `TPlans/{TC_ID}/`
 - Save `TPlans/results.json` at the end
 
-### 4.2 — Copy annotate.js
-If `TPlans/annotate.js` doesn't exist, generate it (see Appendix A).
-
-### 4.3 — Execute
+### 4.2 — Execute
 ```powershell
 node TPlans/run-tests.js
 ```
 
 If a TC fails: do NOT abort. Continue with remaining TCs. Collect all results.
 
-### 4.4 — On timeout/flaky failures
+### 4.3 — On timeout/flaky failures
 If a TC fails due to timeout or element-not-visible:
 - Retry once with `slowMo: 400`
 - If still fails: mark as FAILED, capture error screenshot, continue
@@ -257,15 +256,4 @@ Tell the user:
 | Screenshot upload fails | Warn per-file. Continue with rest. |
 | All TCs fail | Still upload evidence. Report FAILED in ADO. |
 
----
 
-## Appendix A — annotate.js (standard version)
-
-When generating annotate.js, use this implementation:
-- Uses `sharp` to compose SVG overlays onto PNG files
-- Styles: `success` (#22c55e), `error` (#ef4444), `info` (#2563eb), `warning` (#f59e0b)
-- Each mark: outer glow rect + filled border rect + inner highlight line
-- No text labels — marks only (keeps content visible)
-- PAD: 10px around each bounding box
-- Function signature: `async function annotate(imgPath, marks)` where marks = `[{box, style}]`
-- Export: `module.exports = { annotate }`
