@@ -1,6 +1,20 @@
 # Copilot Execution Entry
 
-## Protocolo principal — TC ID + Org → Test automatizado completo
+## Detección de flujo — Leer PRIMERO
+
+Antes de cualquier acción, determina qué flujo aplica según el mensaje del usuario:
+
+| El usuario menciona… | Flujo | Skill a cargar |
+|---|---|---|
+| TP ID, "ejecutar test plan", "correr TP", "subir evidencia", "documentar resultados" | **Caso 1 — Ejecución + Reporte ADO** | `skills/qa-execution-reporter/SKILL.md` |
+| TC ID + "automatizar", "inicia", codegen, código Playwright | **Caso 2 — Automatización** | `skills/playwright-e2e/SKILL.md` (protocolo principal abajo) |
+| Ambiguo | Preguntar: "¿Quieres ejecutar el plan y documentar los resultados en ADO, o quieres convertir los TCs en scripts automatizados reutilizables?" | — |
+
+⚠️ **Si el flujo es Caso 1: leer `skills/qa-execution-reporter/SKILL.md` y seguir sus fases. No continuar leyendo este archivo.**
+
+---
+
+## Protocolo principal — TC ID + Org → Test automatizado completo (Caso 2)
 
 El flujo estándar se activa cuando el usuario dice "inicia" o indica que quiere automatizar.
 El agente completa TODO el trabajo — el usuario hace DOS cosas: ejecutar el codegen y proveer el TC ID.
@@ -106,7 +120,7 @@ RESULTADO FINAL:
 
 ---
 
-## Flujos de entrada alternativos
+## Flujos de entrada alternativos (Caso 2 — Automatización)
 
 | Entrada del usuario | Flujo |
 |---|---|
