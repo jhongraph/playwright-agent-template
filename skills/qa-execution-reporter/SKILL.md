@@ -16,15 +16,31 @@ Do NOT use for: creating new TCs (→ `create-test-cases`), converting manual TC
 
 ---
 
-## PHASE 0 — CASE DETECTION
+## PHASE 0 — SCENARIO SELECTION (MANDATORY — ALWAYS ASK)
 
-Read the user's first message and determine:
+First, route to the correct skill:
 
-| Signal | Case |
-|--------|------|
-| Test Plan ID / suite ID mentioned | ✅ This skill (qa-execution-reporter) |
+| Signal | Action |
+|--------|--------|
 | TC IDs + "automatizar" / "automate" | → `playwright-e2e` skill |
-| Ambiguous | Ask: "¿Quieres ejecutar el plan y documentar los resultados en ADO, o quieres convertir los TCs en scripts automatizados reutilizables?" |
+| Everything else | Continue below |
+
+**BEFORE doing anything else**, present these two scenarios and wait for the user's answer:
+
+> **¿Cómo quieres ejecutar estos TCs?**
+>
+> **Escenario A — Proyecto Playwright completo** *(recomendado para regresión)*
+> Crea estructura `TPlans/` con specs `.ts` reutilizables, fixtures y npm scripts.
+> Los tests quedan como código y se pueden volver a correr en el futuro.
+>
+> **Escenario B — Ejecución directa, sin archivos**
+> El agente navega la app vía MCP Browser, ejecuta cada paso del TC y toma screenshots.
+> No genera ningún archivo de código. Solo sube evidencia a ADO.
+
+⛔ **No proceder hasta tener la respuesta del usuario.**
+
+- **Escenario A** → continúa con Phase 1 → 2 → 3 → 4 → 5
+- **Escenario B** → salta Phase 2 (sin setup de proyecto), va directo a Phase 1 → 3 (TC discovery) → ejecuta vía MCP Browser → Phase 5
 
 ---
 
@@ -150,6 +166,9 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
     trace: 'on-first-retry',
+    launchOptions: {
+      slowMo: parseInt(process.env.SLOW_MO || '0', 10),
+    },
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
@@ -162,13 +181,16 @@ export default defineConfig({
 "scripts": {
   "test": "npx playwright test",
   "test:headed": "npx playwright test --headed",
-  "test:headless": "npx playwright test --headed=false",
+  "test:slow": "set SLOW_MO=800 && npx playwright test --headed",
   "test:debug": "npx playwright test --debug",
-  "test:one": "npx playwright test --grep",
-  "test:ui": "npx playwright test --ui",
   "report": "npx playwright show-report"
 }
 ```
+
+> ⚠️ `test:slow` usa `set VAR=value &&` — sintaxis nativa de cmd.exe que npm usa internamente.
+> NO usar `cross-env`, `$env:`, ni `export` — no están disponibles sin dependencias adicionales.
+> El `SLOW_MO=800` agrega 800ms entre acciones para que el usuario pueda ver el proceso.
+> El usuario puede ajustarlo desde PowerShell: `$env:SLOW_MO='500'; npm run test:headed`
 
 Run these automatically. Do not ask the user — just do it and confirm when done.
 
