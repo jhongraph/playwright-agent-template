@@ -430,27 +430,78 @@ async function uploadAttachment(filePath, fileName) {
 
 > ❌ FORBIDDEN: `fileContent.toString('binary')` — corrupts PNG bytes above 127.
 
-Execution report format for each comment:
+#### ✅ APPROVED COMMENT HTML TEMPLATE (use this exact structure)
+
+This is the approved layout. Do NOT deviate from it.
+
+Rules:
+- **Headers row**: `background:#0078d4; color:white; font-size:16px; font-weight:bold; padding:12px`
+- **PASSED cells**: `color:#1a7f37; font-weight:bold; text-align:center;` — NO background color on rows
+- **FAILED cells**: `color:#c0392b; font-weight:bold; text-align:center;` — NO background color on rows
+- **Images**: stacked in a **column** (one per `<p>` block), each `width=720`, wrapped in `<a href target=_blank>` for click-to-expand
+- **Evidence section**: BELOW the table, never inside table cells
+
 ```html
-<h3>📋 Resultado E2E — {TC_ID} {ICON}</h3>
-<p><b>Plan:</b> {PLAN_ID} | <b>Suite:</b> {SUITE} | <b>Fecha:</b> {DATE}</p>
-<table>
-  <tr><th>Fase</th><th>Estado</th><th>Detalle</th></tr>
-  {rows}
+<h2>📋 {TC_ID} — {TC_TITLE} {OVERALL_ICON}</h2>
+<p style="font-size:14px;"><b>Plan:</b> {PLAN_ID} | <b>Suite:</b> {SUITE} | <b>Fecha:</b> {DATE} | <b>Usuario:</b> {USERNAME}</p>
+
+<table border="1" cellpadding="10" cellspacing="0" style="border-collapse:collapse;font-size:15px;width:100%;">
+  <thead>
+    <tr style="background:#0078d4;color:white;font-size:16px;font-weight:bold;">
+      <th style="width:10%;padding:12px;">Fase</th>
+      <th style="width:38%;padding:12px;">Acción</th>
+      <th style="width:38%;padding:12px;">Resultado Esperado</th>
+      <th style="width:14%;padding:12px;">Estado</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>STEP 1</b></td>
+      <td>{ACTION_1}</td>
+      <td>{EXPECTED_1}</td>
+      <td style="color:#1a7f37;font-weight:bold;text-align:center;">✅ PASSED</td>
+    </tr>
+    <!-- repeat for each step — use color:#c0392b for ❌ FAILED -->
+  </tbody>
 </table>
-<h4>📸 Evidencia</h4>
-{inline image table}
+
+<br/>
+<b style="font-size:15px;">📎 Evidencia</b> &nbsp;<i style="font-size:12px;color:#666;">(clic para ver a tamaño completo)</i>
+<br/><br/>
+
+<p style="font-size:13px;margin:4px 0;"><b>STEP 1 — {STEP_1_LABEL}</b></p>
+<a href="{ATTACHMENT_URL_1}" target="_blank">
+  <img src="{ATTACHMENT_URL_1}" width="720" style="border:1px solid #ccc;display:block;" />
+</a>
+
+<br/>
+<p style="font-size:13px;margin:4px 0;"><b>STEP 2 — {STEP_2_LABEL}</b></p>
+<a href="{ATTACHMENT_URL_2}" target="_blank">
+  <img src="{ATTACHMENT_URL_2}" width="720" style="border:1px solid #ccc;display:block;" />
+</a>
+
+<!-- repeat for each step screenshot -->
+
+<hr/><small>🤖 GitHub Copilot Agent — {SCENARIO} — {DATE}</small>
 ```
+
+**OVERALL_ICON**: `✅ PASSED` if all steps passed, `❌ FAILED` if any step failed.
+**ATTACHMENT_URL pattern**: `https://dev.azure.com/{ORG}/{PROJECT_GUID}/_apis/wit/attachments/{GUID}?fileName={name}.png`
+Note: ADO sanitizes these URLs internally to `\u0006/GUID` in `renderedText` JSON — this is normal. Images render correctly in the browser.
 
 Run automatically:
 ```powershell
 node TPlans/upload-evidence.js
 ```
 
-### 5.3 — If PAT NOT found → fallback via MCP comment (text-only)
+### 5.3 — If PAT NOT found → fallback via MCP comment (text-only attachments)
 
 If PAT could not be auto-extracted, use `mcp_ado_wit_add_work_item_comment` directly.
-Post the result table + step details as HTML. No image attachments.
+Use the same **APPROVED COMMENT HTML TEMPLATE** from section 5.2 above.
+Omit the `<img>` tags since there are no uploaded attachment URLs — include the steps table and Evidencia label with a note:
+```html
+<p style="font-size:13px;color:#888;"><i>Nota: adjuntos no disponibles (PAT no encontrado en MCP config).</i></p>
+```
 **Do NOT ask the user for anything. Complete silently with this fallback.**
 
 ---
