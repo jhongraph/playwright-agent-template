@@ -63,25 +63,31 @@ Collect ALL required data before doing anything else. Ask only for what is missi
 
 > Para comenzar necesito algunos datos. Por favor respóndeme en un solo mensaje:
 >
-> 1. **Org ADO** — nombre de tu organización en Azure DevOps (ej: `MiOrg`)
-> 2. **Test Plan ID** — número del plan de pruebas (ej: `9412`)
-> 3. **URL de la app** — URL base de la aplicación a probar (ej: `https://miapp.com`)
-> 4. **Credenciales** — usuario y contraseña para el login (si aplica)
-> 5. **Suites** *(opcional)* — IDs de suites específicas, o déjalo en blanco para ejecutar todas
+> 1. **Org ADO** — nombre de tu organización en Azure DevOps (ej: `MiOrg`) `[OBLIGATORIO]`
+> 2. **Test Plan ID** — ID del plan de pruebas (ej: `9412`) `[OBLIGATORIO]`
+> 3. **Test Suite ID** — ID de la suite dentro del plan (ej: `9418`) `[OBLIGATORIO]`
+> 4. **TC IDs específicos** — si quieres ejecutar solo algunos TCs y no toda la suite (ej: `9433, 9434`) `[OPCIONAL]`
+> 5. **URL de la app** — URL base de la aplicación (ej: `https://miapp.com`) `[OBLIGATORIO]`
+> 6. **Credenciales** — usuario y contraseña para el login (si el TC lo requiere) `[si hay login]`
 
 ⛔ Espera la respuesta antes de continuar.
 
 ### Required inputs
 
 ```
-ADO_ORG       → Azure DevOps organization name (e.g. "AutoregPR")
-TEST_PLAN_ID  → Numeric ID of the Test Plan in ADO
-APP_URL       → Base URL of the app under test
+ADO_ORG       → Azure DevOps organization name (e.g. "AutoregPR")   [REQUIRED]
+TEST_PLAN_ID  → Numeric ID of the Test Plan in ADO                  [REQUIRED]
+SUITE_ID      → Numeric ID of the Test Suite inside the plan        [REQUIRED — cannot find TCs without it]
+TC_IDS        → Optional specific TC IDs to run (subset of the suite)
+               If not provided → execute ALL TCs in the suite
+APP_URL       → Base URL of the app under test                      [REQUIRED]
                (try to infer from TC steps before asking)
 CREDENTIALS   → Username + password if the app requires login
                (ask only if TCs include a login step)
-SUITE_IDS     → Optional. If not provided, execute ALL suites in the plan.
 ```
+
+> ⚠️ ADO hierarchy: **Test Plan → Test Suite → Test Cases**
+> The agent navigates this hierarchy top-down. TC IDs alone are not enough — without PLAN + SUITE context, the agent cannot load the test steps.
 
 ### PAT — AUTO-EXTRACTION FROM MCP CONFIG (NO USER INTERVENTION)
 

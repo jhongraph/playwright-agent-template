@@ -44,49 +44,72 @@ Se instalan en `~/.agents/skills/`. Son los playbooks detallados que el agente i
 
 ## Uso rápido
 
-### Automatizar TCs (playwright-e2e)
-1. Instala el template en tu proyecto:
-   ```bash
-   npx github:jhongraph/playwright-agent-template
-   ```
+### Paso 1 — Dile a Copilot qué quieres hacer
 
-2. Abre VS Code con GitHub Copilot Agent y di:
-   ```
-   TC 1234, org: MiOrg, URL: https://miapp.com, user: qa01/pass123
-   ```
+Abre VS Code con GitHub Copilot Agent en modo **Agent** y escribe algo como:
 
-3. El agente:
-   - Fetcha el TC desde Azure DevOps automáticamente
-   - Explora la app vía MCP Browser
-   - Construye `fixtures/` + `tests/` con selectores óptimos (`#id` PRIORITY 1)
-   - Ejecuta TC por TC hasta que todos pasen ✅
-   - Marca el TC como `Automated` en ADO
+```
+Ejecutar test plan 9412, suite 9418, org: MiOrg, URL: https://miapp.com, user: qa01/pass123
+```
 
-### Ejecutar y documentar resultados (qa-execution-reporter)
-1. Abre VS Code con GitHub Copilot Agent y di:
-   ```
-   Ejecutar test plan 9412, org: MiOrg
-   ```
-
-2. El agente te pregunta el escenario y recopila los datos necesarios
-
-3. Luego hace todo automáticamente:
-   - Lee los TCs desde ADO
-   - Navega la app y toma screenshots por cada paso
-   - Sube las imágenes y publica un comentario HTML con evidencia inline en cada WI
-   - Resultado visible en la sección **Discussion** de cada TC en ADO ✅
+> ⚠️ **Siempre incluye TP + TS.** Sin el Test Plan ID el agente no puede encontrar la Suite, y sin la Suite no puede acceder a los TCs.
+> Si quieres ejecutar TCs específicos (no toda la suite), agrégalos también:
+> ```
+> Ejecutar TP 9412, TS 9418, TCs: 9433 y 9434 — org: MiOrg, URL: https://miapp.com, user: qa01/pass123
+> ```
 
 ---
 
-## Input requerido para automatizar
+### Paso 2 — Lo primero que pregunta el agente: ¿A o B?
+
+Antes de hacer cualquier cosa, el agente te pregunta **cómo quieres ejecutar**:
 
 ```
-TC IDs       → números de test case en ADO (ej: 9360, 9364)
-org ADO      → organización de Azure DevOps (ej: MiOrg)
-URL          → URL de la aplicación (OBLIGATORIO — el agente NO infiere)
-Credenciales → usuario y contraseña de prueba
-Archivos     → rutas a archivos Excel, PDF, etc. si el TC los necesita
+¿Cómo quieres ejecutar estos TCs?
+
+Escenario A — Proyecto Playwright completo
+Crea archivos .spec.ts reutilizables en TPlans/.
+Ideal para regresión — los tests quedan como código.
+
+Escenario B — Ejecución directa, sin archivos
+El agente navega la app, ejecuta los pasos y sube screenshots a ADO.
+No genera código. Solo evidencia. Listo en minutos.
 ```
+
+**Responde A o B** y el agente continúa solo.
+
+---
+
+### Escenario A — Proyecto Playwright completo
+El agente:
+- Verifica Node.js (y te guía a instalarlo si falta)
+- Crea `TPlans/` con `playwright.config.ts`, specs y fixtures
+- Te pregunta si grabarás con `codegen` o deja que él explore la app solo
+- Ejecuta los tests y sube evidencia a ADO con screenshots inline ✅
+
+### Escenario B — Ejecutar y documentar
+El agente:
+- Lee los TCs desde ADO
+- Navega la app vía MCP Browser y toma screenshots por cada paso
+- Sube las imágenes y publica un comentario HTML con evidencia inline en cada WI
+- Resultado visible en la sección **Discussion** de cada TC en ADO ✅
+
+---
+
+## Input recomendado
+
+```
+org ADO         → organización de Azure DevOps (ej: MiOrg)          [OBLIGATORIO]
+Test Plan ID    → ID del plan de pruebas (ej: 9412)                  [OBLIGATORIO]
+Test Suite ID   → ID de la suite dentro del plan (ej: 9418)          [OBLIGATORIO — sin esto no encuentra los TCs]
+TC IDs          → IDs específicos si no quieres ejecutar toda la suite (ej: 9433, 9434) [OPCIONAL]
+URL             → URL de la aplicación                               [OBLIGATORIO]
+Credenciales    → usuario y contraseña de prueba                     [si hay login]
+Archivos        → rutas a archivos Excel, PDF, etc.                  [si el TC los necesita]
+```
+
+> **Jerarquía ADO:** Test Plan → Test Suite → Test Cases
+> El agente necesita bajar por esa jerarquía. Si solo das TC IDs sin TP y TS, no puede ubicar el contexto del test.
 
 ---
 
