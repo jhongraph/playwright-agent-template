@@ -29,13 +29,24 @@ First, route to the correct skill:
 
 > **¿Cómo quieres ejecutar estos TCs?**
 >
+> ---
 > **Escenario A — Proyecto Playwright completo** *(recomendado para regresión)*
-> Crea estructura `TPlans/` con specs `.ts` reutilizables, fixtures y npm scripts.
-> Los tests quedan como código y se pueden volver a correr en el futuro.
+> Los tests quedan como código `.ts` reutilizable. Se pueden volver a correr en el futuro.
 >
-> **Escenario B — Ejecución directa, sin archivos**
-> El agente navega la app vía MCP Browser, ejecuta cada paso del TC y toma screenshots.
-> No genera ningún archivo de código. Solo sube evidencia a ADO.
+> 📋 **Lo que necesitas tener listo:**
+> 1. Node.js 18+ instalado (el agente lo verifica automáticamente)
+> 2. URL de la aplicación bajo prueba
+> 3. Credenciales de login (si el TC lo requiere)
+> 4. Decidir si grabarás el flujo con `codegen` o dejas que el agente lo explore solo
+>
+> ---
+> **Escenario B — Ejecución directa, sin archivos** *(recomendado para evidencia rápida)*
+> El agente navega la app, ejecuta cada paso y sube screenshots a ADO. Sin código generado.
+>
+> 📋 **Lo que necesitas tener listo:**
+> 1. URL de la aplicación bajo prueba
+> 2. Credenciales de login (si el TC lo requiere)
+> 3. Eso es todo — el agente hace el resto automáticamente ✅
 
 ⛔ **No proceder hasta tener la respuesta del usuario.**
 
@@ -47,6 +58,18 @@ First, route to the correct skill:
 ## PHASE 1 — DATA COLLECTION
 
 Collect ALL required data before doing anything else. Ask only for what is missing.
+
+### 📢 SAY TO USER (single message asking for all missing data at once):
+
+> Para comenzar necesito algunos datos. Por favor respóndeme en un solo mensaje:
+>
+> 1. **Org ADO** — nombre de tu organización en Azure DevOps (ej: `MiOrg`)
+> 2. **Test Plan ID** — número del plan de pruebas (ej: `9412`)
+> 3. **URL de la app** — URL base de la aplicación a probar (ej: `https://miapp.com`)
+> 4. **Credenciales** — usuario y contraseña para el login (si aplica)
+> 5. **Suites** *(opcional)* — IDs de suites específicas, o déjalo en blanco para ejecutar todas
+
+⛔ Espera la respuesta antes de continuar.
 
 ### Required inputs
 
@@ -129,16 +152,36 @@ brew install node@20
 ```
 After install, close and reopen the terminal (or `refreshenv`) so `node` is on PATH.
 Verify again: `node --version`
-If still failing: tell the user to install manually from https://nodejs.org (LTS button) and reload VS Code. Block until resolved.
+If still failing:
 
-**Case B — Node.js found but version < 18:**
-Tell the user:
-> "Tu versión de Node.js es demasiado antigua (`{VERSION}`). Playwright requiere Node.js 18+.
-> Actualízala con: `winget upgrade OpenJS.NodeJS.LTS` (Windows) o `brew upgrade node` (macOS).
-> Avísame cuando hayas actualizado."
+> 📢 **SAY TO USER:**
+> No encontré Node.js en tu sistema y el intento de instalación automática falló.
+> Por favor instálalo manualmente:
+> 1. Ve a **https://nodejs.org** y descarga la versión **LTS**
+> 2. Ejecuta el instalador y sigue los pasos (Next → Next → Install)
+> 3. Cierra VS Code completamente y vuélvelo a abrir
+> 4. Dime cuando esté listo y continuamos
+
 Block until resolved.
 
-**Case C — Node.js ≥ 18:** Continue immediately. ✅
+**Case B — Node.js found but version < 18:**
+
+> 📢 **SAY TO USER:**
+> Tu versión de Node.js es `{VERSION}` pero Playwright requiere Node.js 18 o superior.
+> Por favor actualízala:
+> - **Windows:** abre una terminal y ejecuta `winget upgrade OpenJS.NodeJS.LTS`
+> - **macOS:** ejecuta `brew upgrade node`
+> - O descarga la versión LTS desde https://nodejs.org
+> Cuando termines, cierra y vuelve a abrir VS Code, y dime para continuar.
+
+Block until resolved.
+
+**Case C — Node.js ≥ 18:**
+
+> 📢 **SAY TO USER:**
+> ✅ Node.js `{VERSION}` detectado. Instalando dependencias de Playwright...
+
+Continue immediately.
 
 ### 2.2 — Working directory
 Create (or reuse) a directory for this execution:
@@ -149,6 +192,9 @@ If it doesn't exist, create it.
 
 ### 2.3 — npm dependencies & Playwright project structure
 
+> 📢 **SAY TO USER (before running):**
+> Configurando el entorno de pruebas. Esto puede tardar 1-2 minutos en la primera vez. No necesitas hacer nada — te aviso cuando esté listo. ⏳
+
 Set up a full Playwright test project inside `TPlans/` — not a single script.
 
 ```powershell
@@ -157,6 +203,9 @@ npm init -y          # only if package.json doesn't exist
 npm install --save-dev @playwright/test
 npx playwright install chromium
 ```
+
+> 📢 **SAY TO USER (after success):**
+> ✅ Entorno listo. Playwright instalado y Chromium descargado.
 
 Then create the project structure:
 ```
@@ -218,14 +267,22 @@ Run these automatically. Do not ask the user — just do it and confirm when don
 
 ### 2.4 — ADO MCP
 Verify `mcp_ado_testplan_list_test_cases` is available.
-If not: tell the user to configure the Azure DevOps MCP server:
-```json
-"azure-devops": {
-  "command": "npx",
-  "args": ["-y", "@azure-devops/mcp", "YOUR_ORG"],
-  "env": { "AZURE_DEVOPS_EXT_PAT": "set-via-env-not-here" }
-}
-```
+If not:
+
+> 📢 **SAY TO USER:**
+> Para conectar con Azure DevOps necesito que configures el MCP server. Sigue estos pasos:
+>
+> 1. Abre VS Code → `Ctrl+Shift+P` → busca **"MCP: Open MCP Configuration"** (o abre el archivo `.vscode/mcp.json`)
+> 2. Agrega esta configuración (reemplaza `YOUR_ORG` con tu organización):
+> ```json
+> "azure-devops": {
+>   "command": "npx",
+>   "args": ["-y", "@azure-devops/mcp", "YOUR_ORG"],
+>   "env": { "AZURE_DEVOPS_EXT_PAT": "TU_PAT_AQUÍ" }
+> }
+> ```
+> 3. Guarda el archivo y recarga VS Code (`Ctrl+Shift+P` → **"Developer: Reload Window"**)
+> 4. Dime cuando esté listo y reintentamos
 
 ### 2.5 — PAT auto-extraction
 Do NOT check `$env:ADO_PAT` here. PAT extraction happens automatically at the start of Phase 5,
@@ -249,7 +306,16 @@ Read all test cases dynamically. No project-specific data should be hardcoded.
 ```
 
 If the plan has many suites and the user didn't specify, show the list and ask:
-> "El plan tiene estas suites: [lista]. ¿Quieres ejecutar todas o solo alguna en particular?"
+
+> 📢 **SAY TO USER:**
+> Encontré el plan **{PLAN_NAME}** con las siguientes suites:
+>
+> | # | Suite ID | Nombre | TCs |
+> |---|----------|--------|-----|
+> | 1 | {ID} | {NOMBRE} | {N} |
+> | 2 | ... | ... | ... |
+>
+> ¿Quieres ejecutar **todas** o alguna en particular? (responde con el número o escribe "todas")
 
 ---
 
@@ -259,17 +325,29 @@ If the plan has many suites and the user didn't specify, show the list and ask:
 
 **BEFORE generating any spec**, ask the user:
 
-> **¿Cómo quieres construir el flujo de regresión?**
+> 📢 **SAY TO USER:**
+> ¿Cómo quieres que construya el flujo de automatización?
 >
-> **Opción A — `playwright codegen`** (recomendada para usuarios nuevos)
-> Tú grabas el flujo en el browser, me pegas el código, y yo lo convierto en specs limpios.
-> Comando: `npx playwright codegen {APP_URL}`
+> ---
+> **Opción A — Tú grabas con `playwright codegen`** *(más preciso, recomendado)*
+> Abre un browser interactivo donde tú navegas la app y yo capturo los selectores exactos.
 >
-> **Opción B — Agente autónomo**
-> El agente navega la app vía MCP Browser, descubre los selectores y arma los specs solo.
-> Requiere más tiempo pero no necesitas hacer nada.
+> 📋 **Pasos que seguirás tú:**
+> 1. Ejecuta en tu terminal: `npx playwright codegen {APP_URL}`
+> 2. Se abrirá Chrome y el Inspector de Playwright
+> 3. Navega la app exactamente como lo haría el TC (login, acciones, verificaciones)
+> 4. Cuando termines, copia todo el código que aparece en el panel derecho
+> 5. Pégalo aquí en el chat y yo lo convierto en un spec limpio ✅
+>
+> ---
+> **Opción B — El agente explora solo** *(más lento, cero esfuerzo tuyo)*
+> Yo navego la app vía MCP Browser, descubro los selectores y armo todo.
+>
+> 📋 **Pasos que seguirás tú:**
+> 1. Solo espera — yo hago todo automáticamente
+> 2. Te aviso cuando los specs estén listos para revisar ✅
 
-Wait for the user's choice before continuing.
+⛔ Espera la respuesta antes de continuar.
 
 - If **Opción A**: give the exact `npx playwright codegen <URL>` command, wait for the user to paste the recorded code, then go to 4.1.
 - If **Opción B**: use MCP Browser to explore each TC flow, discover selectors, then go to 4.1.
@@ -300,6 +378,14 @@ export const test = base.extend<{ loggedIn: void }>({
 ```
 
 ### 4.2 — Execute
+
+> 📢 **SAY TO USER (before running):**
+> Ejecutando los tests ahora. Puedes:
+> - Ver progreso en la terminal
+> - Correr con browser visible: `npm run test:headed`
+> - Correr más lento para ver el proceso: `npm run test:slow`
+> Te aviso cuando terminen. ⏳
+
 ```powershell
 npx playwright test          # all TCs
 npx playwright test --headed  # with visible browser
@@ -312,6 +398,9 @@ npm run test:headed
 
 If a TC fails: do NOT abort. Playwright's `retries: 1` handles flaky failures automatically.
 After the run, collect results from the JSON written by `afterAll`.
+
+> 📢 **SAY TO USER (after run):**
+> ✅ Ejecución completada: **{PASSED}/{TOTAL} PASSED**. Subiendo evidencia a ADO...
 
 ### 4.3 — SLOW_MO / headed mode via env var
 The generated `playwright.config.ts` should support env-driven overrides:
@@ -333,6 +422,9 @@ $env:HEADED = '1'; $env:SLOW_MO = '700'; npm run test
 ## PHASE 5 — EVIDENCE UPLOAD TO ADO (FULLY AUTOMATIC)
 
 ### 5.1 — Auto-extract PAT from MCP config
+
+> 📢 **SAY TO USER:**
+> Extrayendo credenciales ADO automáticamente de tu configuración MCP... 🔑
 
 Run this PowerShell to read the PAT automatically from VS Code's MCP configuration:
 
@@ -492,10 +584,16 @@ Rules:
 **ATTACHMENT_URL pattern**: `https://dev.azure.com/{ORG}/{PROJECT_GUID}/_apis/wit/attachments/{GUID}?fileName={name}.png`
 Note: ADO sanitizes these URLs internally to `\u0006/GUID` in `renderedText` JSON — this is normal. Images render correctly in the browser.
 
+> 📢 **SAY TO USER (before uploading):**
+> Subiendo screenshots a ADO e insertando evidencia inline en los comentarios. No cierres VS Code. ⏳
+
 Run automatically:
 ```powershell
 node TPlans/upload-evidence.js
 ```
+
+> 📢 **SAY TO USER (progress — print for each TC):**
+> 📤 TC-{N} ({WI_ID}) — Subiendo {TOTAL_STEPS} screenshots... ✅ Comentario publicado.
 
 ### 5.3 — If PAT NOT found → fallback via MCP comment (text-only attachments)
 
@@ -511,30 +609,32 @@ Omit the `<img>` tags since there are no uploaded attachment URLs — include th
 
 ## PHASE 6 — HANDOFF TO USER
 
-When all phases complete, summarize:
+When all phases complete, summarize with this exact message:
 
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ Ejecución completada
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Plan:    {PLAN_ID} — {PLAN_NAME}
-Org:     {ORG}
-Suites:  {SUITE_COUNT}
-TCs:     {PASSED}/{TOTAL} PASSED
+> 📢 **SAY TO USER:**
+>
+> ```
+> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ✅ Ejecución completada
+> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> Plan:    {PLAN_ID} — {PLAN_NAME}
+> Org:     {ORG}
+> Suites:  {SUITE_COUNT}
+> TCs:     {PASSED}/{TOTAL} PASSED
+> ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ```
+>
+> 📁 **Screenshots locales guardados en:**
+> `TPlans/{WI_ID}/` — una carpeta por TC con las fases
+>
+> 📋 **ADO actualizado — cómo verificar:**
+> 1. Ve a: `https://dev.azure.com/{ORG}/{PROJECT}/_testPlans/execute?planId={PLAN_ID}`
+> 2. Abre cualquier TC de la lista
+> 3. En la sección **Discussion** verás el comentario con la tabla de resultados y las imágenes inline
+>
+> ¿Quieres ejecutar más TCs o hay algo que ajustar?
 
-📁 Screenshots locales:
-   TPlans/TC-XXX/ (cada carpeta tiene las fases)
-
-📋 ADO actualizado:
-   Cada TC tiene comentario con resultado + evidencia inline.
-   Verifica en: https://dev.azure.com/{ORG}/{PROJECT}/_testPlans/...
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-Tell the user:
-> "Ya puedes ir a ADO a verificar los resultados. Están documentados en la sección **Discussion** de cada Test Case con los screenshots adjuntos."
-
-**Do NOT ask for further input.** The skill is complete.
+**Do NOT ask for further input unless the user replies.** The skill is complete.
 
 ---
 

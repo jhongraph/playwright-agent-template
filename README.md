@@ -36,6 +36,7 @@ Se instalan en `~/.agents/skills/`. Son los playbooks detallados que el agente i
 | Skill | Propósito |
 |---|---|
 | `playwright-e2e` | Automatizar TCs manuales como E2E con Playwright + patrones AJAX/PostBack |
+| `qa-execution-reporter` | Ejecutar Test Plans de ADO, capturar screenshots y subir evidencia inline a ADO. Zero pasos manuales |
 | `create-test-cases` | Crear Test Cases profesionales en Azure DevOps |
 | `find-skills` | Descubrir e instalar otras skills disponibles |
 
@@ -43,6 +44,7 @@ Se instalan en `~/.agents/skills/`. Son los playbooks detallados que el agente i
 
 ## Uso rápido
 
+### Automatizar TCs (playwright-e2e)
 1. Instala el template en tu proyecto:
    ```bash
    npx github:jhongraph/playwright-agent-template
@@ -59,6 +61,20 @@ Se instalan en `~/.agents/skills/`. Son los playbooks detallados que el agente i
    - Construye `fixtures/` + `tests/` con selectores óptimos (`#id` PRIORITY 1)
    - Ejecuta TC por TC hasta que todos pasen ✅
    - Marca el TC como `Automated` en ADO
+
+### Ejecutar y documentar resultados (qa-execution-reporter)
+1. Abre VS Code con GitHub Copilot Agent y di:
+   ```
+   Ejecutar test plan 9412, org: MiOrg
+   ```
+
+2. El agente te pregunta el escenario y recopila los datos necesarios
+
+3. Luego hace todo automáticamente:
+   - Lee los TCs desde ADO
+   - Navega la app y toma screenshots por cada paso
+   - Sube las imágenes y publica un comentario HTML con evidencia inline en cada WI
+   - Resultado visible en la sección **Discussion** de cada TC en ADO ✅
 
 ---
 
