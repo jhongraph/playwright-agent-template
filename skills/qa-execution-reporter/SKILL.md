@@ -109,12 +109,65 @@ Create (or reuse) a directory for this execution:
 ```
 If it doesn't exist, create it.
 
-### 2.3 — npm dependencies
+### 2.3 — npm dependencies & Playwright project structure
+
+Set up a full Playwright test project inside `TPlans/` — not a single script.
+
 ```powershell
 cd TPlans
 npm init -y          # only if package.json doesn't exist
-npm install playwright
+npm install --save-dev @playwright/test
 npx playwright install chromium
+```
+
+Then create the project structure:
+```
+TPlans/
+├── playwright.config.ts   ← config with baseURL, headless, reporter
+├── package.json           ← with npm scripts for run/headed/headless/debug
+├── tests/
+│   └── {suite-name}.spec.ts   ← one spec per suite (or one per TC)
+└── fixtures/
+    └── base.fixture.ts    ← shared login helper and page setup
+```
+
+**`TPlans/playwright.config.ts`** (generate this file):
+```ts
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests',
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
+  fullyParallel: false,
+  retries: 1,
+  reporter: [['html', { open: 'never' }], ['list']],
+  use: {
+    baseURL: '{APP_URL}',
+    headless: true,
+    viewport: { width: 1280, height: 720 },
+    actionTimeout: 15_000,
+    screenshot: 'only-on-failure',
+    video: 'off',
+    trace: 'on-first-retry',
+  },
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium' } },
+  ],
+});
+```
+
+**`TPlans/package.json` scripts** (update after npm init):
+```json
+"scripts": {
+  "test": "npx playwright test",
+  "test:headed": "npx playwright test --headed",
+  "test:headless": "npx playwright test --headed=false",
+  "test:debug": "npx playwright test --debug",
+  "test:one": "npx playwright test --grep",
+  "test:ui": "npx playwright test --ui",
+  "report": "npx playwright show-report"
+}
 ```
 
 Run these automatically. Do not ask the user — just do it and confirm when done.
@@ -156,30 +209,80 @@ If the plan has many suites and the user didn't specify, show the list and ask:
 
 ---
 
-## PHASE 4 — SCRIPT GENERATION & EXECUTION
+## PHASE 4 — SPEC GENERATION & EXECUTION
 
-### 4.1 — Generate run-tests.js
+### 4.0 — Ask the user how to build the regression flow
 
-Generate a `TPlans/run-tests.js` script dynamically based on TC_MAP.
-The script must:
-- Be **fully dynamic** — no hardcoded test case names, IDs, or selectors
-- Read APP_URL and credentials from variables at the top (set from collected data)
-- Use `headless: true` for execution
-- Save screenshots as-is (no post-processing or annotation)
-- Save screenshots to `TPlans/{TC_ID}/`
-- Save `TPlans/results.json` at the end
+**BEFORE generating any spec**, ask the user:
+
+> **¿Cómo quieres construir el flujo de regresión?**
+>
+> **Opción A — `playwright codegen`** (recomendada para usuarios nuevos)
+> Tú grabas el flujo en el browser, me pegas el código, y yo lo convierto en specs limpios.
+> Comando: `npx playwright codegen {APP_URL}`
+>
+> **Opción B — Agente autónomo**
+> El agente navega la app vía MCP Browser, descubre los selectores y arma los specs solo.
+> Requiere más tiempo pero no necesitas hacer nada.
+
+Wait for the user's choice before continuing.
+
+- If **Opción A**: give the exact `npx playwright codegen <URL>` command, wait for the user to paste the recorded code, then go to 4.1.
+- If **Opción B**: use MCP Browser to explore each TC flow, discover selectors, then go to 4.1.
+
+### 4.1 — Generate Playwright specs (`.spec.ts`) dynamically
+
+Generate spec files in `TPlans/tests/` based on TC_MAP.
+
+**One spec per suite** (or one per TC for small plans). The spec must:
+- Use `@playwright/test` — `import { test, expect } from '@playwright/test'`
+- Name each test exactly with the TC title: `test('TC-001 — {título}', async ({ page }) => {`
+- Capture screenshots at each step: `await page.screenshot({ path: 'TPlans/{WI_ID}/step{N}.png' })`
+- Save step results to a JSON array and write `TPlans/results.json` in an `afterAll` hook
+- Use the shared login helper from `fixtures/base.fixture.ts` if login is needed
+- Use `headless: true` by default (from playwright.config.ts)
+
+**`TPlans/fixtures/base.fixture.ts`** (generate this file if login is needed):
+```ts
+import { test as base } from '@playwright/test';
+
+export const test = base.extend<{ loggedIn: void }>({  
+  loggedIn: async ({ page }, use) => {
+    await page.goto('{APP_URL}');
+    // fill login from credentials
+    await use();
+  },
+});
+```
 
 ### 4.2 — Execute
 ```powershell
-node TPlans/run-tests.js
+npx playwright test          # all TCs
+npx playwright test --headed  # with visible browser
+```
+Or use npm scripts:
+```powershell
+npm run test
+npm run test:headed
 ```
 
-If a TC fails: do NOT abort. Continue with remaining TCs. Collect all results.
+If a TC fails: do NOT abort. Playwright's `retries: 1` handles flaky failures automatically.
+After the run, collect results from the JSON written by `afterAll`.
 
-### 4.3 — On timeout/flaky failures
-If a TC fails due to timeout or element-not-visible:
-- Retry once with `slowMo: 400`
-- If still fails: mark as FAILED, capture error screenshot, continue
+### 4.3 — SLOW_MO / headed mode via env var
+The generated `playwright.config.ts` should support env-driven overrides:
+```ts
+use: {
+  headless: process.env.HEADED !== '1',
+  launchOptions: {
+    slowMo: parseInt(process.env.SLOW_MO || '0', 10),
+  },
+}
+```
+So the user can run:
+```powershell
+$env:HEADED = '1'; $env:SLOW_MO = '700'; npm run test
+```
 
 ---
 
@@ -197,6 +300,93 @@ The script must:
       - Inline image previews using the attachment URLs
       - Execution timestamp and agent signature
 
+### ⚠️ CRITICAL — PAT check must print plain-text instructions
+
+When `process.env.ADO_PAT` is not set, the generated script MUST print step-by-step
+instructions to the terminal (NOT ask the user inside Copilot chat). Use this exact pattern:
+
+```js
+const PAT = process.env.ADO_PAT;
+if (!PAT) {
+  console.log('');
+  console.log('╔══════════════════════════════════════════════════════════╗');
+  console.log('║       Configuración requerida: ADO Personal Token        ║');
+  console.log('╠══════════════════════════════════════════════════════════╣');
+  console.log('║                                                          ║');
+  console.log('║  1. Crea tu PAT en ADO (si aún no tienes uno):           ║');
+  console.log('║     https://dev.azure.com/{ORG}/_usersSettings/tokens    ║');
+  console.log('║     Permisos: Work Items (Read & Write)                  ║');
+  console.log('║                                                          ║');
+  console.log('║  2. Abre PowerShell y ejecuta (NO en el chat):           ║');
+  console.log('║     $env:ADO_PAT = "PEGA_TU_PAT_AQUI"                   ║');
+  console.log('║                                                          ║');
+  console.log('║  3. Luego ejecuta de nuevo en la misma terminal:         ║');
+  console.log('║     node TPlans/upload-evidence.js                       ║');
+  console.log('║                                                          ║');
+  console.log('╚══════════════════════════════════════════════════════════╝');
+  console.log('');
+  process.exit(1);
+}
+```
+
+### ⚠️ CRITICAL — adoRequest must handle Buffer bodies without string conversion
+
+Binary files (PNG screenshots) MUST be sent as `Buffer`, never converted to string.
+Use this exact `adoRequest` implementation in every generated upload script:
+
+```js
+function adoRequest(method, url, body, contentType) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    let postData;
+    const headers = {
+      Authorization: `Basic ${AUTH}`,
+      'Content-Type': contentType || 'application/json',
+      Accept: 'application/json',
+    };
+    if (body) {
+      if (Buffer.isBuffer(body)) {
+        // Binary data — use length in bytes, do NOT convert to string
+        postData = body;
+        headers['Content-Length'] = body.length;
+      } else if (typeof body === 'string') {
+        postData = body;
+        headers['Content-Length'] = Buffer.byteLength(body);
+      } else {
+        postData = JSON.stringify(body);
+        headers['Content-Length'] = Buffer.byteLength(postData);
+      }
+    }
+    const options = { hostname: parsed.hostname, path: parsed.pathname + parsed.search, method, headers };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try { resolve(JSON.parse(data)); } catch { resolve(data); }
+        } else {
+          reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 300)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    if (postData) req.write(postData);
+    req.end();
+  });
+}
+
+// ✅ CORRECT: pass Buffer directly — no .toString('binary')
+async function uploadAttachment(filePath, fileName) {
+  const fileContent = fs.readFileSync(filePath); // raw Buffer
+  const url = `https://dev.azure.com/${ORG}/${PROJECT}/_apis/wit/attachments?fileName=${encodeURIComponent(fileName)}&api-version=7.0`;
+  const res = await adoRequest('POST', url, fileContent, 'application/octet-stream');
+  return res.url;
+}
+```
+
+> ❌ FORBIDDEN: `fileContent.toString('binary')` — corrupts PNG bytes above 127 when Node.js
+> re-encodes the string to UTF-8 for the socket write. Use the Buffer directly.
+
 3. Execution report format for each comment:
 ```html
 <h3>📋 Resultado E2E — {TC_ID} {ICON}</h3>
@@ -207,6 +397,19 @@ The script must:
 </table>
 <h4>📸 Evidencia</h4>
 {inline image table}
+```
+
+After generating the script, print these instructions in the chat as plain text (not inside a Copilot run block):
+
+```
+Para subir la evidencia a ADO:
+
+1. Abre PowerShell (NO el chat de Copilot)
+2. Configura tu PAT (una sola vez por sesión):
+   $env:ADO_PAT = "TU_PAT_AQUI"
+3. Ejecuta el upload:
+   cd "{project-root}/TPlans"
+   node upload-evidence.js
 ```
 
 Execute:
