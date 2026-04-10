@@ -367,12 +367,15 @@ Generate `TPlans/upload-evidence.js` and execute automatically, no user input ne
 The script must:
 1. **Read PAT from `process.env.ADO_PAT`** — never from a file or argument
 2. For each TC in `results.json`:
-   a. Upload each PNG to `https://dev.azure.com/{ORG}/{PROJECT}/_apis/wit/attachments`
-   b. Get the attachment URL back
-   c. POST a comment to the work item with:
+   a. Upload each PNG to `https://dev.azure.com/{ORG}/{PROJECT}/_apis/wit/attachments` → receive back an attachment URL with a GUID
+   b. **Do NOT PATCH the work item to add attachment relations** — not needed
+   c. POST a single HTML comment to the work item using `mcp_ado_wit_add_work_item_comment` (or REST POST) with:
       - Result table (PASSED/FAILED per step)
-      - Inline image previews using the attachment URLs
+      - Inline images using `<img src="{ATTACHMENT_URL}">` directly in the HTML
       - Execution timestamp and agent signature
+
+> ✅ The images are visible inline in the comment. ADO stores the PNG in its attachment storage and serves it via the URL. No WI relation patching is required.
+> ✅ Verified: WI relations count = 0 after successful execution — images still render correctly inline.
 
 #### ⚠️ CRITICAL — adoRequest must handle Buffer bodies without string conversion
 
