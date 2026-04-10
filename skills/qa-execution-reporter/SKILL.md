@@ -60,27 +60,49 @@ CREDENTIALS   → Username + password if the app requires login
 SUITE_IDS     → Optional. If not provided, execute ALL suites in the plan.
 ```
 
-### PAT — SECURITY PROTOCOL (CRITICAL)
+### PAT — AUTO-EXTRACTION FROM MCP CONFIG (NO USER INTERVENTION)
 
-⚠️ **NEVER ask the user to paste their PAT here in the chat.**
+⚠️ **NEVER ask the user for their PAT.**
 ⚠️ **NEVER store the PAT in any file.**
 
-When the PAT is needed, say EXACTLY this to the user:
+If `mcp_ado_testplan_list_test_cases` works in Phase 3, the MCP ADO server is authenticated.
+That means `AZURE_DEVOPS_EXT_PAT` is already configured in VS Code's MCP settings.
 
----
-> **Necesito que configures tu Personal Access Token de ADO.**
-> 
-> 1. Abre tu terminal **de forma privada** (no aquí en el chat).
-> 2. Ejecuta: `$env:ADO_PAT = "TU_PAT_AQUI"`
-> 3. **Nunca compartas tu PAT en el chat** — es una credencial secreta.
-> 4. Si no tienes un PAT aún, créalo en: `https://dev.azure.com/TU_ORG/_usersSettings/tokens`
->    Permisos mínimos requeridos: **Work Items (Read & Write)**, **Test Management (Read & Write)**.
-> 5. Avísame cuando lo hayas configurado para continuar.
----
+**The agent MUST auto-extract it** before Phase 5 using this priority order:
 
-All scripts MUST read the PAT exclusively via `process.env.ADO_PAT`. Never hardcode, never log it.
+1. Check VS Code user MCP config: `$env:APPDATA\Code\User\mcp.json`
+2. Check VS Code user settings: `$env:APPDATA\Code\User\settings.json`
+3. Check workspace MCP config: `.vscode/mcp.json` (relative to project root)
+4. Check system env var directly: `$env:AZURE_DEVOPS_EXT_PAT`
 
-When the user confirms the PAT is set: acknowledge briefly ("Perfecto, continuando...") and immediately proceed to execute `upload-evidence.js` — do NOT ask again or wait for further input.
+To read and inject the PAT automatically, run this PowerShell before executing `upload-evidence.js`:
+
+```powershell
+# Read PAT from VS Code MCP config (try each location)
+$pat = $null
+$locations = @(
+  "$env:APPDATA\Code\User\mcp.json",
+  "$env:APPDATA\Code\User\settings.json",
+  ".vscode\mcp.json"
+)
+foreach ($f in $locations) {
+  if (Test-Path $f) {
+    $content = Get-Content $f -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+    # Try direct env key
+    $pat = $content.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT
+    if (-not $pat) { $pat = $content.mcp.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT }
+    if ($pat -and $pat -notlike '${env:*}') { break }
+  }
+}
+# Fallback: system env var
+if (-not $pat) { $pat = $env:AZURE_DEVOPS_EXT_PAT }
+if ($pat) { $env:ADO_PAT = $pat }
+```
+
+If `$pat` is found → proceed to Phase 5 immediately.
+If NOT found → post results via `mcp_ado_wit_add_work_item_comment` (text-only fallback, no image attachments) and skip `upload-evidence.js`.
+
+**Never block. Never ask the user. Always complete autonomously.**
 
 ---
 
@@ -205,9 +227,9 @@ If not: tell the user to configure the Azure DevOps MCP server:
 }
 ```
 
-### 2.5 — PAT env var
-Check: `$env:ADO_PAT` is set (non-empty).
-If not: trigger PAT Security Protocol from Phase 1.
+### 2.5 — PAT auto-extraction
+Do NOT check `$env:ADO_PAT` here. PAT extraction happens automatically at the start of Phase 5,
+after TC execution is complete. Continue immediately.
 
 ---
 
@@ -308,50 +330,51 @@ $env:HEADED = '1'; $env:SLOW_MO = '700'; npm run test
 
 ---
 
-## PHASE 5 — EVIDENCE UPLOAD TO ADO
+## PHASE 5 — EVIDENCE UPLOAD TO ADO (FULLY AUTOMATIC)
 
-Use the REST API via a generated `TPlans/upload-evidence.js` script.
-The script must:
+### 5.1 — Auto-extract PAT from MCP config
 
-1. **Read PAT from `process.env.ADO_PAT`** — never from a file or argument
-2. For each TC in results.json:
-   a. Upload each PNG to `https://dev.azure.com/{ORG}/{PROJECT}/_apis/wit/attachments`
-   b. Get the attachment URL back
-   c. POST a comment to the work item with:
-      - Result table (PASSED/FAILED per phase)
-      - Inline image previews using the attachment URLs
-      - Execution timestamp and agent signature
+Run this PowerShell to read the PAT automatically from VS Code's MCP configuration:
 
-### ⚠️ CRITICAL — PAT check must print plain-text instructions
-
-When `process.env.ADO_PAT` is not set, the generated script MUST print step-by-step
-instructions to the terminal (NOT ask the user inside Copilot chat). Use this exact pattern:
-
-```js
-const PAT = process.env.ADO_PAT;
-if (!PAT) {
-  console.log('');
-  console.log('╔══════════════════════════════════════════════════════════╗');
-  console.log('║       Configuración requerida: ADO Personal Token        ║');
-  console.log('╠══════════════════════════════════════════════════════════╣');
-  console.log('║                                                          ║');
-  console.log('║  1. Crea tu PAT en ADO (si aún no tienes uno):           ║');
-  console.log('║     https://dev.azure.com/{ORG}/_usersSettings/tokens    ║');
-  console.log('║     Permisos: Work Items (Read & Write)                  ║');
-  console.log('║                                                          ║');
-  console.log('║  2. Abre PowerShell y ejecuta (NO en el chat):           ║');
-  console.log('║     $env:ADO_PAT = "PEGA_TU_PAT_AQUI"                   ║');
-  console.log('║                                                          ║');
-  console.log('║  3. Luego ejecuta de nuevo en la misma terminal:         ║');
-  console.log('║     node TPlans/upload-evidence.js                       ║');
-  console.log('║                                                          ║');
-  console.log('╚══════════════════════════════════════════════════════════╝');
-  console.log('');
-  process.exit(1);
+```powershell
+$pat = $null
+$locations = @(
+  "$env:APPDATA\Code\User\mcp.json",
+  "$env:APPDATA\Code\User\settings.json",
+  ".vscode\mcp.json"
+)
+foreach ($f in $locations) {
+  if (Test-Path $f) {
+    $content = Get-Content $f -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+    $pat = $content.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT
+    if (-not $pat) { $pat = $content.mcp.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT }
+    if ($pat -and $pat -notlike '${env:*}') { break }
+  }
+}
+if (-not $pat) { $pat = $env:AZURE_DEVOPS_EXT_PAT }
+if ($pat) {
+  $env:ADO_PAT = $pat
+  Write-Host "PAT extraído automáticamente del MCP config."
+} else {
+  Write-Host "PAT no encontrado en MCP config. Usando fallback MCP comments."
 }
 ```
 
-### ⚠️ CRITICAL — adoRequest must handle Buffer bodies without string conversion
+### 5.2 — If PAT extracted → run upload-evidence.js
+
+Generate `TPlans/upload-evidence.js` and execute automatically, no user input needed.
+
+The script must:
+1. **Read PAT from `process.env.ADO_PAT`** — never from a file or argument
+2. For each TC in `results.json`:
+   a. Upload each PNG to `https://dev.azure.com/{ORG}/{PROJECT}/_apis/wit/attachments`
+   b. Get the attachment URL back
+   c. POST a comment to the work item with:
+      - Result table (PASSED/FAILED per step)
+      - Inline image previews using the attachment URLs
+      - Execution timestamp and agent signature
+
+#### ⚠️ CRITICAL — adoRequest must handle Buffer bodies without string conversion
 
 Binary files (PNG screenshots) MUST be sent as `Buffer`, never converted to string.
 Use this exact `adoRequest` implementation in every generated upload script:
@@ -368,7 +391,6 @@ function adoRequest(method, url, body, contentType) {
     };
     if (body) {
       if (Buffer.isBuffer(body)) {
-        // Binary data — use length in bytes, do NOT convert to string
         postData = body;
         headers['Content-Length'] = body.length;
       } else if (typeof body === 'string') {
@@ -397,7 +419,7 @@ function adoRequest(method, url, body, contentType) {
   });
 }
 
-// ✅ CORRECT: pass Buffer directly — no .toString('binary')
+// ✅ CORRECT: pass Buffer directly — never .toString('binary')
 async function uploadAttachment(filePath, fileName) {
   const fileContent = fs.readFileSync(filePath); // raw Buffer
   const url = `https://dev.azure.com/${ORG}/${PROJECT}/_apis/wit/attachments?fileName=${encodeURIComponent(fileName)}&api-version=7.0`;
@@ -406,10 +428,9 @@ async function uploadAttachment(filePath, fileName) {
 }
 ```
 
-> ❌ FORBIDDEN: `fileContent.toString('binary')` — corrupts PNG bytes above 127 when Node.js
-> re-encodes the string to UTF-8 for the socket write. Use the Buffer directly.
+> ❌ FORBIDDEN: `fileContent.toString('binary')` — corrupts PNG bytes above 127.
 
-3. Execution report format for each comment:
+Execution report format for each comment:
 ```html
 <h3>📋 Resultado E2E — {TC_ID} {ICON}</h3>
 <p><b>Plan:</b> {PLAN_ID} | <b>Suite:</b> {SUITE} | <b>Fecha:</b> {DATE}</p>
@@ -421,23 +442,16 @@ async function uploadAttachment(filePath, fileName) {
 {inline image table}
 ```
 
-After generating the script, print these instructions in the chat as plain text (not inside a Copilot run block):
-
-```
-Para subir la evidencia a ADO:
-
-1. Abre PowerShell (NO el chat de Copilot)
-2. Configura tu PAT (una sola vez por sesión):
-   $env:ADO_PAT = "TU_PAT_AQUI"
-3. Ejecuta el upload:
-   cd "{project-root}/TPlans"
-   node upload-evidence.js
-```
-
-Execute:
+Run automatically:
 ```powershell
 node TPlans/upload-evidence.js
 ```
+
+### 5.3 — If PAT NOT found → fallback via MCP comment (text-only)
+
+If PAT could not be auto-extracted, use `mcp_ado_wit_add_work_item_comment` directly.
+Post the result table + step details as HTML. No image attachments.
+**Do NOT ask the user for anything. Complete silently with this fallback.**
 
 ---
 
@@ -474,11 +488,12 @@ Tell the user:
 
 | Situation | Action |
 |-----------|--------|
-| `ADO_PAT` not set | Trigger PAT Security Protocol. Block. |
+| PAT not in MCP config | Use `mcp_ado_wit_add_work_item_comment` fallback. Never block. |
+| MCP ADO unavailable | Block — without MCP ADO, Phase 3 (TC discovery) already fails. Tell user to configure MCP. |
 | TC not found in ADO | Warn user with TC ID. Skip. Continue. |
 | App URL not inferable | Ask user once. |
 | Playwright install fails | Show exact error. Ask user to run manually. |
-| Screenshot upload fails | Warn per-file. Continue with rest. |
+| Screenshot upload fails | Warn per-file. Fall back to MCP comment for that TC. Continue. |
 | All TCs fail | Still upload evidence. Report FAILED in ADO. |
 
 
