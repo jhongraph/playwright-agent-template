@@ -57,10 +57,23 @@ if (fs.existsSync(skillsSrc)) {
   fs.readdirSync(skillsSrc).forEach(s => console.log('   ' + s));
 }
 
-console.log('\n📦 Próximos pasos sugeridos:');
-console.log('   npm install              → instalar dependencias Playwright');
-console.log('   npm run codegen          → grabar un flujo interactivo');
-console.log('   npm run test:headed      → correr tests con browser visible');
-console.log('   npm run test:one -- login → correr solo tests que contengan "login"');
+// 4. Instalar dependencias npm automáticamente
+console.log('\n📦 Instalando dependencias...');
+const { execSync } = require('child_process');
+try {
+  execSync('npm install', { stdio: 'inherit', cwd: process.cwd() });
+  console.log('✅ npm install completado.');
+  try {
+    execSync('npx playwright install chromium', { stdio: 'inherit', cwd: process.cwd() });
+    console.log('✅ Chromium instalado.');
+  } catch (e) {
+    console.warn('⚠️  No se pudo instalar Chromium automáticamente. Ejecuta manualmente: npx playwright install chromium');
+  }
+} catch (e) {
+  console.warn('⚠️  npm install falló. Ejecuta manualmente: npm install');
+}
+
 console.log('\n🚀 Listo. Abre VS Code y usa GitHub Copilot Agent.');
-console.log('   Dile: "TC 1234, URL: https://tu-app.com, user/pass"\n');
+console.log('   Dile: "TC 1234, URL: https://tu-app.com, user/pass"');
+console.log('\n📹 Para grabar un flujo antes de automatizarlo (tú lo haces manualmente):');
+console.log('   npm run codegen -- https://tu-app.com\n');
