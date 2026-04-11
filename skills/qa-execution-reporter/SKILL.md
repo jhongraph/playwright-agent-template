@@ -16,42 +16,16 @@ Do NOT use for: creating new TCs (→ `create-test-cases`), converting manual TC
 
 ---
 
-## PHASE 0 — SCENARIO SELECTION (MANDATORY — ALWAYS ASK)
+## PHASE 0 — ROUTING CHECK
 
 First, route to the correct skill:
 
 | Signal | Action |
 |--------|--------|
 | TC IDs + "automatizar" / "automate" | → `playwright-e2e` skill |
-| Everything else | Continue below |
+| Everything else | → Continue to **Phase 1** (SCENARIO selection is the first required field) |
 
-**BEFORE doing anything else**, present these two scenarios and wait for the user's answer:
-
-> **¿Cómo quieres ejecutar estos TCs?**
->
-> ---
-> **Escenario A — Proyecto Playwright completo** *(recomendado para regresión)*
-> Los tests quedan como código `.ts` reutilizable. Se pueden volver a correr en el futuro.
->
-> 📋 **Lo que necesitas tener listo:**
-> 1. Node.js 18+ instalado (el agente lo verifica automáticamente)
-> 2. URL de la aplicación bajo prueba
-> 3. Credenciales de login (si el TC lo requiere)
-> 4. Decidir si grabarás el flujo con `codegen` o dejas que el agente lo explore solo
->
-> ---
-> **Escenario B — Ejecución directa, sin archivos** *(recomendado para evidencia rápida)*
-> El agente navega la app, ejecuta cada paso y sube screenshots a ADO. Sin código generado.
->
-> 📋 **Lo que necesitas tener listo:**
-> 1. URL de la aplicación bajo prueba
-> 2. Credenciales de login (si el TC lo requiere)
-> 3. Eso es todo — el agente hace el resto automáticamente ✅
-
-⛔ **No proceder hasta tener la respuesta del usuario.**
-
-- **Escenario A** → continúa con Phase 1 → 2 → 3 → 4 → 5
-- **Escenario B** → salta Phase 2 (sin setup de proyecto), va directo a Phase 1 → 3 (TC discovery) → ejecuta vía MCP Browser → Phase 5
+> ⚠️ Do NOT assume Scenario A or B from the user's wording. Always ask explicitly in Phase 1.
 
 ---
 
@@ -59,10 +33,17 @@ First, route to the correct skill:
 
 Collect ALL required data before doing anything else. Ask only for what is missing.
 
+> ⚠️ **SCENARIO is ALWAYS missing** — it can NEVER be inferred from the user's request.
+> Even if the user provides all other data upfront, SCENARIO must still be asked explicitly.
+> **Do NOT skip or assume SCENARIO under any circumstance.**
+
 ### 📢 SAY TO USER (single message asking for all missing data at once):
 
 > Para comenzar necesito algunos datos. Por favor respóndeme en un solo mensaje:
 >
+> 0. **¿Escenario A o B?** `[OBLIGATORIO — siempre preguntar, nunca inferir]`
+>    - **A** — Proyecto Playwright completo: tests quedan como código `.ts` reutilizable para regresión futura
+>    - **B** — Ejecución directa: el agente navega, ejecuta y sube evidencia sin generar código
 > 1. **Org ADO** — nombre de tu organización en Azure DevOps (ej: `MiOrg`) `[OBLIGATORIO]`
 > 2. **Test Plan ID** — ID del plan de pruebas (ej: `9412`) `[OBLIGATORIO]`
 > 3. **Test Suite ID** — ID de la suite dentro del plan (ej: `9418`) `[OBLIGATORIO]`
@@ -75,12 +56,13 @@ Collect ALL required data before doing anything else. Ask only for what is missi
 ### Required inputs
 
 ```
-ADO_ORG       → Azure DevOps organization name (e.g. "AutoregPR")   [REQUIRED]
-TEST_PLAN_ID  → Numeric ID of the Test Plan in ADO                  [REQUIRED]
-SUITE_ID      → Numeric ID of the Test Suite inside the plan        [REQUIRED — cannot find TCs without it]
+SCENARIO      → "A" (full Playwright project) or "B" (direct execution) [REQUIRED — ALWAYS ASK]
+ADO_ORG       → Azure DevOps organization name (e.g. "AutoregPR")       [REQUIRED]
+TEST_PLAN_ID  → Numeric ID of the Test Plan in ADO                      [REQUIRED]
+SUITE_ID      → Numeric ID of the Test Suite inside the plan            [REQUIRED — cannot find TCs without it]
 TC_IDS        → Optional specific TC IDs to run (subset of the suite)
                If not provided → execute ALL TCs in the suite
-APP_URL       → Base URL of the app under test                      [REQUIRED]
+APP_URL       → Base URL of the app under test                          [REQUIRED]
                (try to infer from TC steps before asking)
 CREDENTIALS   → Username + password if the app requires login
                (ask only if TCs include a login step)
