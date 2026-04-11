@@ -16,16 +16,6 @@ function copyDir(srcDir, destDir) {
   });
 }
 
-// Helper: copy a file only if it does NOT already exist in the destination
-function copyIfMissing(src, dest) {
-  if (!fs.existsSync(dest) && fs.existsSync(src)) {
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
-    return true;
-  }
-  return false;
-}
-
 // 1. Copiar archivos del workspace (Template/ → cwd)
 const templateSrc  = path.join(__dirname, 'Template');
 const templateDest = process.cwd();
@@ -33,22 +23,7 @@ copyDir(templateSrc, templateDest);
 console.log('✅ Archivos de workspace copiados:');
 fs.readdirSync(templateSrc).forEach(f => console.log('   ' + f));
 
-// 2. Copiar archivos de configuración Playwright si no existen en el proyecto
-const configFiles = ['playwright.config.ts', 'tsconfig.json'];
-const copied = [];
-for (const file of configFiles) {
-  const src  = path.join(__dirname, file);
-  const dest = path.join(process.cwd(), file);
-  if (copyIfMissing(src, dest)) copied.push(file);
-}
-if (copied.length > 0) {
-  console.log('\n✅ Archivos de configuración Playwright copiados (no existían):');
-  copied.forEach(f => console.log('   ' + f));
-} else {
-  console.log('\n⏭  playwright.config.ts / tsconfig.json ya existen — no sobreescritos.');
-}
-
-// 3. Instalar skills en ~/.agents/skills/
+// 2. Instalar skills en ~/.agents/skills/
 const skillsSrc  = path.join(__dirname, 'skills');
 const skillsDest = path.join(os.homedir(), '.agents', 'skills');
 if (fs.existsSync(skillsSrc)) {
