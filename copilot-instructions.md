@@ -1,20 +1,20 @@
 # Copilot Execution Entry
 
-## Detección de flujo — Leer PRIMERO
+---
 
-Antes de cualquier acción, determina qué flujo aplica según el mensaje del usuario:
+## ⚡ SELECTOR DE SKILL — Leer PRIMERO antes de cualquier acción
 
-| El usuario menciona… | Flujo | Skill a cargar |
-|---|---|---|
-| TP ID, "ejecutar test plan", "correr TP", "subir evidencia", "documentar resultados" | **Caso 1 — Ejecución + Reporte ADO** | `skills/qa-execution-reporter/SKILL.md` |
-| TC ID + "automatizar", "inicia", codegen, código Playwright | **Caso 2 — Automatización** | `skills/playwright-e2e/SKILL.md` (protocolo principal abajo) |
-| Ambiguo | Preguntar: "¿Quieres ejecutar el plan y documentar los resultados en ADO, o quieres convertir los TCs en scripts automatizados reutilizables?" | — |
+| Si el usuario menciona... | Skill a cargar |
+|---------------------------|---------------|
+| "inicia", "automatiza", "convierte a código", TC ID + codegen | `playwright-e2e` → seguir Protocolo principal abajo |
+| "ejecuta test plan", "corre TP", "documenta resultados", "sube evidencia", "reportar en ADO", Plan ID / Suite ID sin "automatizar" | `qa-execution-reporter` → cargar skill y seguir sus fases al pie de la letra |
+| "crea test cases", "redacta TCs", "genera casos de prueba" | `create-test-cases` → cargar skill |
 
-⚠️ **Si el flujo es Caso 1: leer `skills/qa-execution-reporter/SKILL.md` y seguir sus fases. No continuar leyendo este archivo.**
+⛔ **No mezclar flujos.** Si la instrucción activa `qa-execution-reporter`, ignorar el Protocolo principal de esta página.
 
 ---
 
-## Protocolo principal — TC ID + Org → Test automatizado completo (Caso 2)
+## Protocolo principal — TC ID + Org → Test automatizado completo
 
 El flujo estándar se activa cuando el usuario dice "inicia" o indica que quiere automatizar.
 El agente completa TODO el trabajo — el usuario hace DOS cosas: ejecutar el codegen y proveer el TC ID.
@@ -120,7 +120,7 @@ RESULTADO FINAL:
 
 ---
 
-## Flujos de entrada alternativos (Caso 2 — Automatización)
+## Flujos de entrada alternativos
 
 | Entrada del usuario | Flujo |
 |---|---|

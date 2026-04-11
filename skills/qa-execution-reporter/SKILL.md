@@ -271,6 +271,28 @@ export default defineConfig({
 
 Run these automatically. Do not ask the user — just do it and confirm when done.
 
+### 2.3b — TPlans/tsconfig.json (REQUIRED — prevents TypeScript errors on `process`)
+
+Create this file inside `TPlans/` immediately after creating `playwright.config.ts`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["playwright.config.ts", "tests/**/*", "fixtures/**/*"]
+}
+```
+
+> ⚠️ Without this file, TypeScript cannot find `process` (Node.js global) and throws compile errors.
+> The root `tsconfig.json` (from the Playwright template) does NOT cover `TPlans/` — this file is required.
+
 ### 2.4 — ADO MCP
 Verify `mcp_ado_testplan_list_test_cases` is available.
 If not:
@@ -326,6 +348,9 @@ If the plan has many suites and the user didn't specify, show the list and ask:
 ---
 
 ## PHASE 4 — SPEC GENERATION & EXECUTION
+
+> ⚠️ **[SOLO ESCENARIO A]** — Esta fase completa aplica ÚNICAMENTE si el usuario eligió Escenario A.
+> Si eligió Escenario B, saltar directamente a Phase 5. El agente ejecuta via MCP Browser sin generar specs.
 
 ### 4.0 — Ask the user how to build the regression flow
 
@@ -408,24 +433,60 @@ After the run, collect results from the JSON written by `afterAll`.
 > 📢 **SAY TO USER (after run):**
 > ✅ Ejecución completada: **{PASSED}/{TOTAL} PASSED**. Subiendo evidencia a ADO...
 
-### 4.3 — SLOW_MO / headed mode via env var
-The generated `playwright.config.ts` should support env-driven overrides:
-```ts
-use: {
-  headless: process.env.HEADED !== '1',
-  launchOptions: {
-    slowMo: parseInt(process.env.SLOW_MO || '0', 10),
-  },
-}
-```
-So the user can run:
+### 4.3 — Modos de ejecución: headed / slow
+
+El `playwright.config.ts` (Phase 2.3) ya incluye `slowMo` via env var. Los npm scripts del `package.json` manejan headed:
+
 ```powershell
-$env:HEADED = '1'; $env:SLOW_MO = '700'; npm run test
+npm run test          # headless (default)
+npm run test:headed   # browser visible
+npm run test:slow     # browser visible a 800ms por acción
 ```
+
+El usuario también puede controlar `SLOW_MO` desde PowerShell antes de correr:
+```powershell
+$env:SLOW_MO = '500'; npm run test:headed
+```
+
+> ⚠️ NO modificar `headless` en `playwright.config.ts` — está fijo en `true`. El CLI flag `--headed` (vía npm scripts) lo sobreescribe en tiempo de ejecución. No usar `process.env.HEADED` en el config.
 
 ---
 
 ## PHASE 5 — EVIDENCE UPLOAD TO ADO (FULLY AUTOMATIC)
+
+### 5.0 — Preparar screenshots según escenario
+
+**Escenario A:** Los screenshots ya existen en `TPlans/results/{WI_ID}/stepN.png` (generados por el spec en Phase 4). `results.json` ya existe. Continuar a 5.1.
+
+**Escenario B — Guardar screenshots de MCP Browser a disco:**
+
+El agente ejecutó cada paso via MCP Browser. Antes de subir evidencia:
+1. Crear directorio `TPlans/results/{WI_ID}/` para cada TC (crear `TPlans/` si no existe — solo la carpeta, sin npm project)
+2. Por cada screenshot capturado con `browser_take_screenshot`: guardar el archivo base64 como PNG usando PowerShell:
+```powershell
+# Guardar screenshot base64 a archivo PNG
+[System.IO.File]::WriteAllBytes("{ruta}\stepN.png", [Convert]::FromBase64String("{base64_data}"))
+```
+3. Construir manualmente `TPlans/results.json` con la estructura:
+```json
+[
+  {
+    "tcId": 9433,
+    "wiId": 9433,
+    "title": "TC título",
+    "suite": "Suite nombre",
+    "steps": [
+      { "step": 1, "action": "...", "expected": "...", "status": "PASSED", "screenshot": "TPlans/results/9433/step1.png" }
+    ],
+    "overall": "PASSED"
+  }
+]
+```
+4. Continuar a 5.1 — el resto del flujo (PAT + upload-evidence.js) es idéntico para ambos escenarios.
+
+> ✅ `upload-evidence.js` solo usa módulos nativos de Node.js (`https`, `fs`, `path`) — no requiere `npm install`. Puede ejecutarse con `node TPlans/upload-evidence.js` directamente.
+
+---
 
 ### 5.1 — Auto-extract PAT from MCP config
 
