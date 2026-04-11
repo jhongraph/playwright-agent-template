@@ -10,10 +10,12 @@ Estructura y skills para automatizar pruebas E2E con **GitHub Copilot Agent + Pl
 npx github:jhongraph/playwright-agent-template
 ```
 
-Esto hace DOS cosas automáticamente:
+Esto hace dos cosas automáticamente:
 
 1. **Copia los archivos de workspace** (`copilot-instructions.md`, `agent-architecture.md`, etc.) al directorio actual del proyecto.
 2. **Instala las skills** en `~/.agents/skills/` para que GitHub Copilot las use en cualquier workspace.
+
+> `npm install` y `playwright install chromium` **no se ejecutan aquí**. El agente los corre automáticamente dentro de `TPlans/` solo si eliges **Escenario A**. Escenario B no requiere ninguna instalación.
 
 ---
 
@@ -115,10 +117,12 @@ Archivos        → rutas a archivos Excel, PDF, etc.                  [si el TC
 
 ## Requisitos
 
-- Node.js 18+
-- VS Code con GitHub Copilot Chat (Agent mode)
-- MCP de Azure DevOps configurado
-- MCP de Playwright configurado
+| Requisito | Escenario A | Escenario B |
+|-----------|:-----------:|:-----------:|
+| Node.js 18+ | ✅ (el agente lo verifica e instala si falta) | ❌ no necesario |
+| VS Code + GitHub Copilot Agent mode | ✅ | ✅ |
+| MCP Azure DevOps configurado | ✅ | ✅ |
+| MCP Playwright (Browser) configurado | ✅ | ✅ |
 
 ---
 
