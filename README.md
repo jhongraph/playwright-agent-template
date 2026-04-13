@@ -1,6 +1,7 @@
-# playwright-agent-template
+# playwright-agent-template V2
 
-Estructura y skills para automatizar pruebas E2E con **GitHub Copilot Agent + Playwright**.
+Arquitectura agéntica para automatizar pruebas E2E con **GitHub Copilot Agent + Playwright + Azure DevOps**.
+Cada tarea es delegada a un agente especializado con contexto mínimo — sin monolitos, sin pérdida de estado entre sesiones.
 
 ---
 
@@ -10,125 +11,95 @@ Estructura y skills para automatizar pruebas E2E con **GitHub Copilot Agent + Pl
 npx github:jhongraph/playwright-agent-template
 ```
 
-Esto hace dos cosas automáticamente:
+Esto hace lo siguiente automáticamente:
+1. Copia los archivos de workspace (`copilot-instructions.md`, `agent-architecture.md`, etc.) al directorio actual.
+2. Instala las skills en `~/.agents/skills/` para que GitHub Copilot las invoque en cualquier workspace.
+3. Crea `.agent-state/` para el estado compartido entre agentes.
+4. Crea `.env.playwright` (a partir del template example) para tus credenciales.
 
-1. **Copia los archivos de workspace** (`copilot-instructions.md`, `agent-architecture.md`, etc.) al directorio actual del proyecto.
-2. **Instala las skills** en `~/.agents/skills/` para que GitHub Copilot las use en cualquier workspace.
+Para re-instalar sobre una instalación existente sin perder archivos:
+```bash
+npx github:jhongraph/playwright-agent-template --force
+```
 
-> `npm install` y `playwright install chromium` **no se ejecutan aquí**. El agente los corre automáticamente dentro de `TPlans/` solo si eliges **Escenario A**. Escenario B no requiere ninguna instalación.
+---
+
+## Arquitectura V2 — Multi-agent con JSON handoffs
+
+Cada agente es un SKILL.md con responsabilidad única. Se comunican via archivos JSON en `.agent-state/`.
+
+```
+Usuario → Orquestador (copilot-instructions.md)
+               │
+               ├─ tc-reader     → lee ADO, produce plan-<TC>.json
+               ├─ discovery     → explora DOM, produce discovery-<TC>.json
+               ├─ code-builder  → genera fixture + spec TypeScript
+               ├─ executor      → corre npx playwright test, produce execution-<TC>.json
+               ├─ debugger      → diagnostica fallos, aplica fix mínimo
+               └─ reporter      → reporta en ADO (qa-execution-reporter)
+```
+
+Ver `agent-architecture.md` para la tabla completa de agentes, contratos y prohibiciones por rol.
 
 ---
 
 ## Contenido
 
 ### `Template/` — Archivos de workspace
-Se copian a la raíz del proyecto. Le dicen a Copilot cómo comportarse en este workspace:
 
 | Archivo | Propósito |
 |---|---|
-| `copilot-instructions.md` | Protocolo principal: TC ID + Org → test automatizado |
-| `agent-architecture.md` | Arquitectura de agentes (Planner, Discovery, Selector, Data) |
-| `execution-rules.md` | Reglas de implementación resumidas |
-| `playwright-guide.md` | Guía de estructura de fixtures y specs |
-| `selector-strategy.md` | Estrategia de selectores (prioridad de locators) |
+| `copilot-instructions.md` | Orquestador puro: pipelines A/B, gestión de session.json |
+| `agent-architecture.md` | Tabla de agentes reales, contratos JSON, flujo del pipeline |
+| `execution-rules.md` | REGLA 0–13 de construcción de tests |
+| `playwright-guide.md` | Implementación de helpers (waitForPageIdle, safeSetValue, etc.) |
+| `selector-strategy.md` | Tabla de prioridad de selectores (PRIORITY 1–7) |
+| `.env.playwright.example` | Template de credenciales — copiar como `.env.playwright` |
+| `.agent-state/` | Schemas JSON de contratos entre agentes (versionar solo *.schema.json) |
 
 ### `skills/` — Skills de GitHub Copilot Agent
-Se instalan en `~/.agents/skills/`. Son los playbooks detallados que el agente invoca:
 
-| Skill | Propósito |
-|---|---|
-| `playwright-e2e` | Automatizar TCs manuales como E2E con Playwright + patrones AJAX/PostBack |
-| `qa-execution-reporter` | Ejecutar Test Plans de ADO, capturar screenshots y subir evidencia inline a ADO. Zero pasos manuales |
-| `create-test-cases` | Crear Test Cases profesionales en Azure DevOps |
-| `find-skills` | Descubrir e instalar otras skills disponibles |
-
----
-
-## Uso rápido
-
-### Paso 1 — Dile a Copilot qué quieres hacer
-
-Abre VS Code con GitHub Copilot Agent en modo **Agent** y escribe algo como:
-
-```
-Ejecutar test plan 9412, suite 9418, org: MiOrg, URL: https://miapp.com, user: qa01/pass123
-```
-
-> ⚠️ **Siempre incluye TP + TS.** Sin el Test Plan ID el agente no puede encontrar la Suite, y sin la Suite no puede acceder a los TCs.
-> Si quieres ejecutar TCs específicos (no toda la suite), agrégalos también:
-> ```
-> Ejecutar TP 9412, TS 9418, TCs: 9433 y 9434 — org: MiOrg, URL: https://miapp.com, user: qa01/pass123
-> ```
+| Skill | Agente | Rol |
+|---|---|---|
+| `tc-reader` | QA Analyst | Lee TCs de ADO, produce plan estructurado |
+| `discovery` | Auto Dev | Explora DOM vía MCP Browser, confirma selectores |
+| `code-builder` | Auto Dev | Convierte plan+discovery en TypeScript fixture+spec |
+| `executor` | QA Executor | Corre `npx playwright test`, captura resultados |
+| `debugger` | Auto Dev | Diagnostica fallos, aplica fix mínimo en MCP Browser |
+| `playwright-e2e` | Legacy | Flujo monolítico completo (sin ADO, sin pipeline) |
+| `qa-execution-reporter` | QA Reporter | Sube evidencia y resultados a ADO |
+| `create-test-cases` | QA Analyst | Crea TCs profesionales en ADO |
 
 ---
 
-### Paso 2 — Lo primero que pregunta el agente: ¿A o B?
+## Configuración inicial
 
-Antes de hacer cualquier cosa, el agente te pregunta **cómo quieres ejecutar**:
+### 1. Completar `.env.playwright`
 
 ```
-¿Cómo quieres ejecutar estos TCs?
-
-Escenario A — Proyecto Playwright completo
-Crea archivos .spec.ts reutilizables en TPlans/.
-Ideal para regresión — los tests quedan como código.
-
-Escenario B — Ejecución directa, sin archivos
-El agente navega la app, ejecuta los pasos y sube screenshots a ADO.
-No genera código. Solo evidencia. Listo en minutos.
+APP_URL=https://tu-app.com
+TEST_USER=mi-usuario
+TEST_PASS=mi-contraseña
+ADO_ORG=MiOrg
+ADO_PROJECT=MiProyecto
 ```
 
-**Responde A o B** y el agente continúa solo.
+> `.env.playwright` está en `.gitignore` — nunca se sube al repositorio.
+
+### 2. Invocar el pipeline
+
+En GitHub Copilot Agent (modo Agent), escribe:
+
+```
+Automatiza Suite 9363, org: AutoregPR, proyecto: AUTOREG, url: https://mi-app.com
+```
+
+El orquestador coordina tc-reader → discovery → code-builder → executor. El estado se persiste en `.agent-state/session.json` — puedes retomar sesiones interrumpidas.
 
 ---
 
-### Escenario A — Proyecto Playwright completo
-El agente:
-- Verifica Node.js (y te guía a instalarlo si falta)
-- Crea `TPlans/` con `playwright.config.ts`, specs y fixtures
-- Te pregunta si grabarás con `codegen` o deja que él explore la app solo
-- Ejecuta los tests y sube evidencia a ADO con screenshots inline ✅
+## Seguridad
 
-### Escenario B — Ejecutar y documentar
-El agente:
-- Lee los TCs desde ADO
-- Navega la app vía MCP Browser y toma screenshots por cada paso
-- Sube las imágenes y publica un comentario HTML con evidencia inline en cada WI
-- Resultado visible en la sección **Discussion** de cada TC en ADO ✅
-
----
-
-## Input recomendado
-
-```
-org ADO         → organización de Azure DevOps (ej: MiOrg)          [OBLIGATORIO]
-Test Plan ID    → ID del plan de pruebas (ej: 9412)                  [OBLIGATORIO]
-Test Suite ID   → ID de la suite dentro del plan (ej: 9418)          [OBLIGATORIO — sin esto no encuentra los TCs]
-TC IDs          → IDs específicos si no quieres ejecutar toda la suite (ej: 9433, 9434) [OPCIONAL]
-URL             → URL de la aplicación                               [OBLIGATORIO]
-Credenciales    → usuario y contraseña de prueba                     [si hay login]
-Archivos        → rutas a archivos Excel, PDF, etc.                  [si el TC los necesita]
-```
-
-> **Jerarquía ADO:** Test Plan → Test Suite → Test Cases
-> El agente necesita bajar por esa jerarquía. Si solo das TC IDs sin TP y TS, no puede ubicar el contexto del test.
-
----
-
-## Requisitos
-
-| Requisito | Escenario A | Escenario B |
-|-----------|:-----------:|:-----------:|
-| Node.js 18+ | ✅ (el agente lo verifica e instala si falta) | ❌ no necesario |
-| VS Code + GitHub Copilot Agent mode | ✅ | ✅ |
-| MCP Azure DevOps configurado | ✅ | ✅ |
-| MCP Playwright (Browser) configurado | ✅ | ✅ |
-
----
-
-## Actualizar skills
-
-```bash
-# Re-ejecutar para obtener la versión más reciente de skills y Template:
-npx github:jhongraph/playwright-agent-template
-```
+- Credenciales en `.env.playwright` — nunca en prompts ni en código
+- `.agent-state/*.json` en `.gitignore` — no se versionan estados de sesión
+- Solo los `*.schema.json` se versionan (documentan los contratos, sin datos)

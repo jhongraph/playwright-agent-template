@@ -7,3 +7,11 @@ dist/
 
 data/reports.json
 test-results/
+
+# Env con credenciales — nunca comitear
+.env.playwright
+
+# Estado runtime de agentes — no versionar
+.agent-state/*.json
+!.agent-state/*.schema.json
+!.agent-state/.gitkeep

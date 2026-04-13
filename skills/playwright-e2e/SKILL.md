@@ -395,28 +395,15 @@ async function selectToday(page: Page, selector: string): Promise<void> {
 > Ejecutar: `document.getElementById('ID_DEL_PICKER').value` después de seleccionar manualmente.
 
 #### Patrón 4 — Campos JS-RESTRICTED (oninput/onkeypress validadores)
-```ts
+
+> Implementación de `safeSetValue()` para campos con validators JS:
+> → ver `playwright-guide.md` sección **safeSetValue**
+
+```js
 // Detectar en MCP:
 Array.from(document.querySelectorAll('input[oninput],input[onkeypress]'))
   .map(e => ({ id: e.id, oninput: e.getAttribute('oninput'), onkeypress: e.getAttribute('onkeypress') }))
-
-// Si tiene validator → fill() deja el campo vacío → usar evaluate:
-async function safeSetValue(page: Page, selector: string, value: string): Promise<void> {
-  const loc = page.locator(selector);
-  await loc.click();
-  await loc.fill(value);
-  const current = await loc.inputValue().catch(() => '');
-  if (!current || current.replace(/[^a-zA-Z0-9]/g, '') === '') {
-    const rawId = selector.startsWith('#') ? selector.slice(1) : selector;
-    await page.evaluate((args: { id: string; val: string }) => {
-      const el = document.getElementById(args.id) as HTMLInputElement;
-      if (!el) return;
-      el.value = args.val;
-      el.dispatchEvent(new Event('input',  { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    }, { id: rawId, val: value });
-  }
-}
+```
 ```
 
 ---
@@ -624,84 +611,16 @@ export const SEL = {
 
 ### REGLA 1 — Esperar SIEMPRE antes de actuar
 
-> La implementación de `waitForPageIdle` depende de la tecnología detectada en FASE 1.
-> Usar la variante correcta para el framework — NO mezclarlas.
+> Implementación completa de las 3 variantes de `waitForPageIdle` (WebForms/SPA/Universal):
+> → ver `playwright-guide.md` sección **waitForPageIdle**
 
-**Paso 1 — Detectar tecnología** (ya hecho en FASE 1, usar el resultado):
-
-```
-webforms: true  → usar Variante A
-react/vue/angular: true → usar Variante B
-tecnología desconocida → usar Variante C (universal)
-```
-
-**Variante A — ASP.NET WebForms / UpdatePanel:**
-```ts
-async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
-  await page.waitForLoadState('networkidle', { timeout });
-  await page.waitForFunction(() => {
-    const prm = (window as any).Sys?.WebForms?.PageRequestManager?.getInstance?.();
-    return !prm || !prm.get_isInAsyncPostBack();
-  }, { timeout });
-}
-```
-
-**Variante B — SPAs (React / Vue / Angular) — esperar que desaparezcan indicadores de carga:**
-```ts
-async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
-  await page.waitForLoadState('networkidle', { timeout });
-  await page.waitForFunction(() => {
-    const spinners = document.querySelectorAll(
-      '.spinner, .loading, [class*="skeleton"], [class*="loading"], [aria-busy="true"]'
-    );
-    return spinners.length === 0 || Array.from(spinners).every(
-      el => (el as HTMLElement).offsetParent === null
-    );
-  }, { timeout }).catch(() => {}); // no fallar si no hay spinners
-}
-```
-
-**Variante C — Universal (tecnología desconocida o múltiple):**
-```ts
-async function waitForPageIdle(page: Page, timeout = 15_000): Promise<void> {
-  await page.waitForLoadState('networkidle', { timeout });
-  // Intentar WebForms + spinners como cobertura amplia
-  await Promise.all([
-    page.waitForFunction(() => {
-      const prm = (window as any).Sys?.WebForms?.PageRequestManager?.getInstance?.();
-      return !prm || !prm.get_isInAsyncPostBack();
-    }, { timeout: 3_000 }).catch(() => {}),
-    page.waitForFunction(() => {
-      return !document.querySelector('.spinner, .loading, [aria-busy="true"]');
-    }, { timeout: 3_000 }).catch(() => {}),
-  ]);
-}
-```
+Regla de uso: detectar tecnología en FASE 1 → usar la variante correcta (A/B/C).
+NO mezclar variantes. La variante incorrecta causará timeouts o falsos positivos.
 
 ### REGLA 2 — No sobrescribir campos pre-llenados
 
-```ts
-async function setIfBlank(
-  page: Page,
-  locator: Locator,
-  value: string,
-  opts: { isSelect?: boolean; allowZero?: boolean } = {},
-): Promise<void> {
-  const current = await locator.inputValue();
-  const blank = !current || current === '' || current === 'Seleccionar';
-  const zero = !opts.allowZero && ['0', '$0', '0.00', '$0.00'].includes(current);
-  if (!blank && !zero) return;
-
-  if (opts.isSelect) {
-    await locator.selectOption(value);
-    await waitForPageIdle(page);
-  } else {
-    await locator.evaluate((el, val) => {
-      (el as HTMLInputElement).value = val;
-    }, value);
-  }
-}
-```
+> Implementación de `setIfBlank()` (verifica `inputValue()` antes de llenar):
+> → ver `playwright-guide.md` sección **setIfBlank**
 
 ### REGLA 3 — Orden de llenado en páginas con Campos Reactivos
 
@@ -725,44 +644,15 @@ async function setIfBlank(
 
 ### REGLA 4 — Click seguro en botones de navegación
 
-```ts
-async function waitForClickable(locator: Locator, timeout = 10_000): Promise<void> {
-  await expect(locator).toBeVisible({ timeout });
-  await expect(locator).toBeEnabled({ timeout });
-}
-
-async function clickContinuar(page: Page): Promise<void> {
-  await waitForPageIdle(page);
-  await waitForClickable(page.locator(SEL.continuar));
-  await page.locator(SEL.continuar).click();
-}
-```
+> Implementación de `waitForClickable()` y `clickContinuar()`:
+> → ver `playwright-guide.md` sección **clickContinuar**
 
 ### REGLA 5 — Validación pre-submit
 
-Antes de click en Continuar/Enviar, diagnosticar campos vacíos:
+> Implementación de `logEmptyFields()` para diagnóstico pre-submit:
+> → ver `playwright-guide.md` sección **logEmptyFields**
 
-```ts
-const invalidFields = await page.evaluate(() => {
-  const ALLOWED_ZERO = ['txtOdometer'];
-  const ALLOWED_EMPTY = ['txtOptional'];
-  const INVALID = (id: string, v: string) => {
-    if (ALLOWED_EMPTY.some(k => id.includes(k))) return false;
-    if (!v || v === '' || v === 'Seleccionar') return true;
-    if (['$0', '0.00', '$0.00'].includes(v)) return true;
-    if (v === '0' && !ALLOWED_ZERO.some(k => id.includes(k))) return true;
-    return false;
-  };
-  const els = document.querySelectorAll(
-    'input[type="text"]:not([disabled]):not([readonly]), select:not([disabled])'
-  );
-  return Array.from(els)
-    .filter(el => (el as HTMLElement).offsetParent !== null)
-    .filter(el => INVALID(el.id, (el as HTMLInputElement).value))
-    .map(el => ({ id: el.id, value: (el as HTMLInputElement).value }));
-});
-expect(invalidFields, `Campos inválidos: ${JSON.stringify(invalidFields)}`).toHaveLength(0);
-```
+Regla: usar como diagnóstico (`console.warn`) antes del submit. No hacer assert duro con los campos vacíos — el servidor los validará y reportará los errores específicos.
 
 ### REGLA 6 — Diagnóstico cuando Continuar no avanza
 
@@ -780,24 +670,8 @@ const errors = await page.evaluate(() =>
 
 ### REGLA 7 — Datos consumibles (Pool Pattern)
 
-```ts
-// helpers/data-manager.ts
-import * as fs from 'fs';
-import * as path from 'path';
-
-const DATA_FILE = path.resolve(__dirname, '../data/test-data.json');
-
-export function consumeItem(key: string): string {
-  const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-  if (!data.available[key] || data.available[key].length === 0) {
-    throw new Error(`No hay items para '${key}'. Agrega más a ${DATA_FILE}.`);
-  }
-  const item = data.available[key].shift()!;
-  data.used[key] = data.used[key] || [];
-  data.used[key].push(item);
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-  return item;
-}
+> Implementación completa de `consumeItem()` y estructura de `test-data.json`:
+> → ver `playwright-guide.md` sección **consumeItem / Pool Pattern**
 ```
 
 ### REGLA 8 — Diálogos `window.confirm` / `window.alert` — 3 Patrones

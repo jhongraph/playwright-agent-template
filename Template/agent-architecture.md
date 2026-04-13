@@ -1,106 +1,86 @@
-# Agent Architecture — Playwright E2E System
+# Agent Architecture V2 — Playwright E2E System
 
-## 1. Orquestador (MANDATORIO)
+## Arquitectura real: Skills como agentes
 
-Responsabilidad:
-- Controlar el flujo completo
-- Delegar tareas a agentes
-- Reintentar SOLO fases necesarias
-
-Prohibido:
-- Ejecutar lógica de negocio
-- Crear código directamente
+Cada agente es un archivo SKILL.md en `~/.agents/skills/<name>/SKILL.md`.
+Los agentes se comunican via JSON en `.agent-state/` — no hay estado volátil en memoria del LLM.
 
 ---
 
-## 2. Agentes
+## Agentes disponibles
 
-### 2.1 Planner Agent (Modelo tipo OX)
-
-Responsabilidad:
-- Interpretar test case
-- Dividir flujo en pantallas
-- Identificar datos y validaciones
-
-Output:
-```json
-{
-  "screens": [],
-  "fields": {},
-  "validations": []
-}
-```
-
-### 2.2 Discovery Agent (Modelo tipo Sonnet + Playwright MCP) ⚠️ OBLIGATORIO
-
-Responsabilidad:
-- Navegar la app con MCP Browser BEFORE escribir cualquier selector
-- Extraer selectores reales con JS eval en cada pantalla
-- Detectar tecnología frontend (ASP.NET WebForms / SPA / Angular)
-- Detectar campos JS-RESTRICTED (oninput / onkeypress)
-- Detectar AutoPostBack en selects (señal: codegen registra goto a misma URL)
-
-**REGLA DE ORO:** Si el Discovery Agent no fue ejecutado, el Selector Manager
-Agent NO puede construir el banco de selectores. Esta es una dependencia BLOQUEANTE.
-
-Script obligatorio por pantalla:
-```js
-Array.from(document.querySelectorAll('[id]'))
-  .filter(e => ['INPUT','SELECT','TEXTAREA','BUTTON'].includes(e.tagName))
-  .filter(e => e.offsetParent !== null)
-  .map(e => ({ id: e.id, tag: e.tagName, type: e.type,
-               oninput: e.getAttribute('oninput'),
-               onkeypress: e.getAttribute('onkeypress') }))
-```
-
-### 2.3 Selector Manager Agent
-
-Responsabilidad:
-- Construir banco central de selectores SOLO con IDs confirmados por Discovery Agent
-- Reutilizar selectores existentes
-- Marcar campos JS-RESTRICTED con comentario
-
-Prioridad: id > name > data-testid > aria-label > css estable > xpath (último recurso)
-
-### 2.4 Data Agent
-
-Responsabilidad:
-- Manejar datos de prueba
-- Pools consumibles (VINs, placas, números de contrato)
-- Retry logic
-
-### 2.5 Test Builder Agent
-
-Responsabilidad:
-- Generar fixture + spec con helpers del playwright-guide.md
-- Campos JS-RESTRICTED → usar `safeSetValue()` automáticamente
-- Verificar `inputValue()` después de cada fill
-- Usar `logEmptyFields()` como diagnóstico (no assert duro) antes de submit
-
-### 2.6 QA Validator Agent
-
-Responsabilidad:
-- Detectar anti-patterns (selector de texto cuando hay id, waitForTimeout, etc.)
-- Validar que todos los selectors tienen evidencia de Discovery Agent
-- Rechazar fixture sin LOCATOR_EVIDENCE comments
+| Skill | Rol | Input | Output |
+|-------|-----|-------|--------|
+| `tc-reader` | QA Analyst — lee ADO | TC ID, org, project | `plan-<TC_ID>.json` |
+| `discovery` | Auto Dev — explora DOM | `plan-<TC_ID>.json` + URL | `discovery-<TC_ID>.json` + `selector-cache.json` |
+| `code-builder` | Auto Dev — genera código | `plan-<TC_ID>.json` + `discovery-<TC_ID>.json` | `TPlans/fixtures/*.ts` + `TPlans/tests/*.spec.ts` |
+| `executor` | QA Executor — corre tests | `session.json` + spec path | `execution-<TC_ID>.json` |
+| `debugger` | Auto Dev — diagnostica | `execution-<TC_ID>.json` | fix aplicado + `session.json` actualizado |
+| `playwright-e2e` | Legacy monolítico | Todo — flujo completo sin ADO | specs completos |
+| `create-test-cases` | QA — crea TCs en ADO | descripción del flujo | TCs creados en ADO |
+| `qa-execution-reporter` | QA — reporta resultados | resultados de ejecución | reporte en ADO |
 
 ---
 
-## 3. Flujo Obligatorio
+## Contratos JSON (.agent-state/)
 
 ```
-1. Orquestador recibe TC + codegen
-2. Discovery Agent → inventariar selectores + detectar JS-RESTRICTED + AutoPostBack
-3. Selector Manager → banco de selectores con evidencia
-4. Planner Agent → plan de pantallas
-5. Test Builder → fixture + spec usando safeSetValue donde aplica
-6. Compile check (tsc --noEmit)
-7. Ejecutar → si falla: Discovery Agent diagnostica → Test Builder corrige → repetir
+.agent-state/
+  session.json                 ← Estado del pipeline completo (un objeto)
+  plan-<TC_ID>.json            ← Salida de tc-reader (pasos, precondiciones, datos)
+  discovery-<TC_ID>.json       ← Salida de discovery (selectores, tecnología, wait_strategy)
+  execution-<TC_ID>.json       ← Salida de executor (pass/fail, terminal_output, screenshots)
+  selector-cache.json          ← Cache de selectores por dominio (TTL 7 días)
+  *.schema.json                ← Schemas JSON de cada contrato (versionar)
 ```
-Discovery Agent explora
-Selector Manager consolida
-Data Agent prepara datos
-Test Builder genera código
-QA Validator valida
-Ejecutar test
-Si falla → volver SOLO a fase necesaria
+
+---
+
+## Flujo Pipeline A (Escenario nuevo)
+
+```
+Usuario: "automatiza TC 9400 org AutoregPR proyecto AUTOREG url https://app.com"
+
+Orquestador (copilot-instructions.md)
+    │
+    ├─► tc-reader ──────────────────► plan-9400.json
+    │
+    ├─► discovery ──────────────────► discovery-9400.json
+    │         (usa selector-cache si disponible y < 7 días)
+    │
+    ├─► code-builder ───────────────► TPlans/fixtures/flujo.fixture.ts
+    │                                 TPlans/tests/9400-slug.spec.ts
+    │
+    ├─► executor ───────────────────► execution-9400.json
+    │         (si PASS → reporter)
+    │         (si FAIL → debugger)
+    │
+    ├─► debugger ───────────────────► fix aplicado en fixture/spec
+    │         (si fixed → executor nuevamente)
+    │         (si fail_count >= 3 → escalar)
+    │
+    └─► reporter ────────────────────► ADO actualizado (status Automated / Pass)
+```
+
+---
+
+## Prohibiciones por rol
+
+| Agente | No puede |
+|--------|----------|
+| tc-reader | Usar MCP Browser, escribir TypeScript, ejecutar terminal |
+| discovery | Usar ADO MCP, escribir TypeScript, ejecutar `npx playwright test` |
+| code-builder | Usar MCP Browser, usar ADO MCP, ejecutar tests |
+| executor | Usar MCP Browser, usar ADO, modificar código |
+| debugger | Reportar en ADO, corregir sin ver DOM en MCP Browser antes |
+| orquestador | Ejecutar lógica de dominio, consultar DOM, escribir selectors |
+
+---
+
+## Archivos de referencia compartidos (no duplicar en skills)
+
+- `playwright-guide.md` → implementación de helpers (waitForPageIdle, safeSetValue, etc.)
+- `execution-rules.md` → REGLA 0–13 de construcción de tests
+- `selector-strategy.md` → tabla de prioridad de selectores
+
+Los skills referencian estos archivos con `→ ver playwright-guide.md` en lugar de duplicar contenido.

@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "discovery-output",
+  "description": "Banco de selectores confirmados y metadatos de tecnología generado por el discovery agent. Input para code-builder.",
+  "type": "object",
+  "required": ["tc_id", "technology", "screens"],
+  "properties": {
+    "tc_id": { "type": "integer" },
+    "session_id": { "type": "string" },
+    "url": { "type": "string" },
+    "technology": {
+      "type": "string",
+      "enum": ["webforms", "react", "vue", "angular", "unknown"],
+      "description": "Tecnología frontend detectada"
+    },
+    "wait_strategy": {
+      "type": "string",
+      "enum": ["A", "B", "C"],
+      "description": "A=WebForms/UpdatePanel | B=SPA | C=Universal. Determina variante de waitForPageIdle en code-builder."
+    },
+    "telerik_detected": { "type": "boolean" },
+    "calendar_detected": { "type": "boolean" },
+    "upload_detected": { "type": "boolean" },
+    "upload_type": {
+      "type": ["string", "null"],
+      "enum": ["native", "telerik_async", "telerik_sync", "dropzone", "custom", null]
+    },
+    "screens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "selectors"],
+        "properties": {
+          "name": { "type": "string" },
+          "url": { "type": ["string", "null"] },
+          "selectors": {
+            "type": "object",
+            "description": "Mapa de nombre_lógico → datos del selector",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["selector", "priority"],
+              "properties": {
+                "selector": { "type": "string", "description": "Selector CSS/XPath confirmado en DOM real" },
+                "priority": { "type": "integer", "minimum": 1, "maximum": 7 },
+                "js_restricted": { "type": "boolean", "description": "true = tiene oninput/onkeypress restrictivo → usar safeSetValue()" },
+                "reactive": { "type": "boolean", "description": "true = dispara request al servidor → usar waitForPageIdle() después" }
+              }
+            }
+          },
+          "reactive_fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Lista de selectores que son reactivos en esta pantalla"
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Advertencias globales del discovery (shadow DOM, iframes, etc.)"
+    }
+  },
+  "example": {
+    "tc_id": 9400,
+    "technology": "webforms",
+    "wait_strategy": "A",
+    "telerik_detected": true,
+    "calendar_detected": false,
+    "upload_detected": true,
+    "upload_type": "telerik_async",
+    "screens": [
+      {
+        "name": "login",
+        "url": "https://tu-app.com/login",
+        "selectors": {
+          "username": { "selector": "#LoginUser_UserName", "priority": 1, "js_restricted": false, "reactive": false },
+          "password": { "selector": "#LoginUser_Password", "priority": 1, "js_restricted": false, "reactive": false },
+          "btn_login": { "selector": "#LoginUser_LoginButton", "priority": 1, "js_restricted": false, "reactive": false }
+        },
+        "reactive_fields": [],
+        "warnings": []
+      }
+    ],
+    "warnings": ["Telerik RadAsyncUpload detectado — delay 1500ms entre uploads múltiples"]
+  }
+}
