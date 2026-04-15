@@ -557,16 +557,69 @@ Generate `TPlans/upload-evidence.js` and execute automatically, no user input ne
 
 The script must:
 1. **Read PAT from `process.env.ADO_PAT`** — never from a file or argument
-2. For each TC in `results.json`:
+2. **Read results from `TPlans/results.json`** — never hardcode TC data in the script
+3. **Implement idempotency via `TPlans/upload-state.json`**:
+   - On start: load state file (`{}` if not found)
+   - Per TC: if `state[wiId].allScreenshots === true` → **skip entirely** (already uploaded)
+   - If `state[wiId].commentId` exists but `allScreenshots` is false → **PATCH** the existing comment instead of creating a new one
+   - On success: save `state[wiId] = { commentId, allScreenshots }` immediately
+   - This guarantees zero duplicate comments even if the script is re-run multiple times
+
+   ```js
+   // ✅ REQUIRED idempotency block — always include this
+   const STATE_FILE = path.join(__dirname, 'upload-state.json');
+   function loadState() {
+     try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; }
+   }
+   function saveState(state) {
+     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+   }
+
+   async function postComment(wiId, html) {
+     const url = `https://dev.azure.com/${ORG}/${PROJECT}/_apis/wit/workItems/${wiId}/comments?api-version=7.0-preview.3`;
+     const res = await adoRequest('POST', url, { text: html }, 'application/json');
+     return res.id;
+   }
+
+   async function patchComment(wiId, commentId, html) {
+     const url = `https://dev.azure.com/${ORG}/${PROJECT}/_apis/wit/workItems/${wiId}/comments/${commentId}?api-version=7.0-preview.3`;
+     const res = await adoRequest('PATCH', url, { text: html }, 'application/json');
+     return res.id;
+   }
+
+   // In main():
+   const state = loadState();
+   for (const tc of results) {
+     const key = String(tc.wiId);
+     const prev = state[key];
+     if (prev && prev.allScreenshots) {
+       console.log(`⏭️  WI ${tc.wiId} — ya subido, omitiendo.`);
+       continue;
+     }
+     // ... upload screenshots ...
+     const html = buildHtml(tc, stepUrls, date);
+     let commentId;
+     if (prev && prev.commentId) {
+       commentId = await patchComment(tc.wiId, prev.commentId, html);
+     } else {
+       commentId = await postComment(tc.wiId, html);
+     }
+     state[key] = { commentId, allScreenshots };
+     saveState(state);
+   }
+   ```
+
+4. For each TC in `results.json`:
    a. Upload each PNG to `https://dev.azure.com/{ORG}/{PROJECT}/_apis/wit/attachments` → receive back an attachment URL with a GUID
    b. **Do NOT PATCH the work item to add attachment relations** — not needed
-   c. POST a single HTML comment to the work item using `mcp_ado_wit_add_work_item_comment` (or REST POST) with:
+   c. POST (or PATCH if re-run) a single HTML comment with:
       - Result table (PASSED/FAILED per step)
       - Inline images using `<img src="{ATTACHMENT_URL}">` directly in the HTML
       - Execution timestamp and agent signature
 
 > ✅ The images are visible inline in the comment. ADO stores the PNG in its attachment storage and serves it via the URL. No WI relation patching is required.
 > ✅ Verified: WI relations count = 0 after successful execution — images still render correctly inline.
+> ✅ `upload-state.json` is local only — add it to `.gitignore` if the project uses git.
 
 #### ⚠️ CRITICAL — adoRequest must handle Buffer bodies without string conversion
 
