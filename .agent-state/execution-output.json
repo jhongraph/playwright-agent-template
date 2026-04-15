@@ -1,0 +1,31 @@
+{
+  "session_id": "2026-04-15-suite-9418",
+  "execution_date": "2026-04-15T00:00:00Z",
+  "suite_id": 9418,
+  "suite_name": "Suite 5 — Sesión",
+  "test_plan_id": 9412,
+  "project": "AUTOREG",
+  "total_tests": 2,
+  "passed": 2,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 14.0,
+  "results": [
+    {
+      "tc_id": 9433,
+      "title": "TC-015 — Logout desde el menú",
+      "status": "passed",
+      "duration_ms": 4500,
+      "tag": "@tc9433"
+    },
+    {
+      "tc_id": 9434,
+      "title": "TC-016 — Sesión no persiste después del logout",
+      "status": "passed",
+      "duration_ms": 5700,
+      "tag": "@tc9434"
+    }
+  ],
+  "spec_file": "tests/sesion.spec.ts",
+  "fixture_file": "fixtures/saucedemo.fixture.ts"
+}

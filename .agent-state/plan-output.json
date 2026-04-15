@@ -1,0 +1,72 @@
+{
+  "session_id": "2026-04-15-suite-9418",
+  "suite_id": 9418,
+  "suite_name": "Suite 5 — Sesión",
+  "test_plan_id": 9412,
+  "test_plan_name": "Test Plan — Saucedemo E2E",
+  "url": "https://www.saucedemo.com",
+  "test_cases": [
+    {
+      "tc_id": 9433,
+      "title": "TC-015 — Logout desde el menú",
+      "priority": 1,
+      "automation_status": "Not Automated",
+      "preconditions": [],
+      "steps": [
+        {
+          "id": 1,
+          "action": "Iniciar sesión con usuario: standard_user y contraseña: secret_sauce",
+          "expected": "El login es exitoso y se muestra el catálogo",
+          "type": "action"
+        },
+        {
+          "id": 2,
+          "action": "Hacer clic en el ícono de menú (hamburger) en la esquina superior izquierda",
+          "expected": "El menú lateral se despliega mostrando las opciones disponibles",
+          "type": "action"
+        },
+        {
+          "id": 3,
+          "action": "Hacer clic en \"Logout\"",
+          "expected": "El sistema redirige a la página de login y la sesión queda cerrada",
+          "type": "validate"
+        }
+      ],
+      "test_data": {
+        "user": "standard_user",
+        "password": "secret_sauce"
+      }
+    },
+    {
+      "tc_id": 9434,
+      "title": "TC-016 — Sesión no persiste después del logout",
+      "priority": 2,
+      "automation_status": "Not Automated",
+      "preconditions": [],
+      "steps": [
+        {
+          "id": 1,
+          "action": "Iniciar sesión con usuario: standard_user y contraseña: secret_sauce",
+          "expected": "El login es exitoso y se muestra el catálogo",
+          "type": "action"
+        },
+        {
+          "id": 2,
+          "action": "Hacer logout desde el menú lateral",
+          "expected": "El sistema redirige a la página de login",
+          "type": "action"
+        },
+        {
+          "id": 3,
+          "action": "Intentar navegar directamente a https://www.saucedemo.com/inventory.html",
+          "expected": "El sistema redirige al login en lugar de mostrar el inventario, confirmando que la sesión no persiste",
+          "type": "validate"
+        }
+      ],
+      "test_data": {
+        "user": "standard_user",
+        "password": "secret_sauce"
+      }
+    }
+  ]
+}

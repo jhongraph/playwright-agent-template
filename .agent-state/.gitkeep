@@ -1,0 +1,17 @@
+Esta carpeta almacena el estado compartido entre agentes para cada sesión.
+
+  ARCHIVOS RUNTIME (no comitear — incluidos en .gitignore):
+    session.json                   - Estado del pipeline actual
+    plan-<TC_ID>.json              - Plan estructurado del tc-reader
+    discovery-<TC_ID>.json         - Selectores confirmados por discovery
+    execution-<TC_ID>.json         - Resultado de ejecución del executor
+
+  ARCHIVOS SCHEMAS (versionar — documentan contratos entre agentes):
+    session.schema.json            - Schema de session.json
+    plan-output.schema.json        - Schema de plan-<TC_ID>.json
+    discovery-output.schema.json   - Schema de discovery-<TC_ID>.json
+    execution-output.schema.json   - Schema de execution-<TC_ID>.json
+    selector-cache.schema.json     - Schema de selector-cache.json 
+
+  CACHE (no comitear):
+    selector-cache.json            - Cache de selectores por dominio (7 días TTL)
