@@ -1,8 +1,9 @@
 {
-  "name": "qa-demo-e2e",
+  "name": "playwright-agent-template",
   "version": "1.0.0",
-  "description": "> Este archivo se instaló automáticamente con `npx github:jhongraph/playwright-agent-template`.  \r > Léelo antes de empezar. Contiene todo lo que necesitas para operar el agente.",
+  "description": "Template de Playwright E2E Agent con integración ADO",
   "main": "index.js",
+  "bin": "./index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
