@@ -90,6 +90,8 @@ To read and inject the PAT automatically, run this PowerShell before executing `
 
 ```powershell
 # Read PAT from VS Code MCP config (try each location)
+# ⚠️ FIX: scan ALL server keys — the key name may be "ado", "azure-devops", or custom.
+#         Do NOT hardcode the server key name.
 $pat = $null
 $locations = @(
   "$env:APPDATA\Code\User\mcp.json",
@@ -99,15 +101,28 @@ $locations = @(
 foreach ($f in $locations) {
   if (Test-Path $f) {
     $content = Get-Content $f -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-    # Try direct env key
-    $pat = $content.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT
-    if (-not $pat) { $pat = $content.mcp.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT }
-    if ($pat -and $pat -notlike '${env:*}') { break }
+    # Resolve the servers object (handle both flat and nested mcp.servers)
+    $serversObj = if ($content.servers) { $content.servers } elseif ($content.mcp.servers) { $content.mcp.servers } else { $null }
+    if ($serversObj) {
+      # Scan every server key for AZURE_DEVOPS_EXT_PAT
+      foreach ($key in ($serversObj | Get-Member -MemberType NoteProperty).Name) {
+        $candidate = $serversObj.$key.env.AZURE_DEVOPS_EXT_PAT
+        if ($candidate -and $candidate -notlike '${env:*}') {
+          $pat = $candidate
+          break
+        }
+      }
+    }
+    if ($pat) { break }
   }
 }
 # Fallback: system env var
 if (-not $pat) { $pat = $env:AZURE_DEVOPS_EXT_PAT }
-if ($pat) { $env:ADO_PAT = $pat }
+if ($pat) {
+  # Strip embedded whitespace/newlines that may exist in mcp.json values
+  $pat = $pat -replace '[\r\n\s]', ''
+  $env:ADO_PAT = $pat
+}
 ```
 
 If `$pat` is found → proceed to Phase 5 immediately.
@@ -443,13 +458,39 @@ $env:SLOW_MO = '500'; npm run test:headed
 **Escenario B — Guardar screenshots de MCP Browser a disco:**
 
 El agente ejecutó cada paso via MCP Browser. Antes de subir evidencia:
+
 1. Crear directorio `TPlans/results/{WI_ID}/` para cada TC (crear `TPlans/` si no existe — solo la carpeta, sin npm project)
-2. Por cada screenshot capturado con `browser_take_screenshot`: guardar el archivo base64 como PNG usando PowerShell:
-```powershell
-# Guardar screenshot base64 a archivo PNG
-[System.IO.File]::WriteAllBytes("{ruta}\stepN.png", [Convert]::FromBase64String("{base64_data}"))
-```
-3. Construir manualmente `TPlans/results.json` con la estructura:
+
+2. **Guardar cada screenshot usando el método correcto según la herramienta:**
+
+   #### ⚠️ CRITICAL — Dos herramientas, dos patrones de path distintos
+
+   | Herramienta | Formato path | Ejemplo |
+   |-------------|-------------|---------|
+   | `mcp_playwright_browser_take_screenshot` | **Relativo al root del workspace** (sin `c:\`) | `TPlans/results/9433/step1.png` |
+   | `mcp_playwright_browser_run_code` (`page.screenshot()`) | **Absoluto con forward slashes** | `c:/Users/User/.../TPlans/results/9433/step1.png` |
+
+   **Para `mcp_playwright_browser_take_screenshot`:**
+   ```
+   filename: "TPlans/results/{WI_ID}/step{N}.png"
+   ```
+   ✅ El directorio debe existir previamente (créalo con `New-Item -ItemType Directory -Force`).
+   ❌ NO usar path absoluto con `C:\` — da error "File access denied: outside allowed roots".
+
+   **Para `mcp_playwright_browser_run_code` (fallback cuando interactive click es necesario):**
+   ```js
+   await page.screenshot({ path: 'c:/Users/User/OneDrive/Documents/Talleres/{project}/TPlans/results/{WI_ID}/step{N}.png' });
+   ```
+   ✅ Ruta absoluta con forward slashes.
+   ❌ NO usar ruta relativa — el CWD del proceso MCP puede no ser el root del workspace.
+
+3. **SIEMPRE verificar que el archivo existe después de guardar**, antes de continuar al siguiente paso:
+   ```powershell
+   Get-ChildItem "TPlans\results\{WI_ID}\" | Select-Object Name, Length
+   ```
+   Si algún archivo tiene `Length = 0` o no existe → capturar de nuevo antes de continuar.
+
+4. Construir manualmente `TPlans/results.json` con la estructura:
 ```json
 [
   {
@@ -464,9 +505,10 @@ El agente ejecutó cada paso via MCP Browser. Antes de subir evidencia:
   }
 ]
 ```
-4. Continuar a 5.1 — el resto del flujo (PAT + upload-evidence.js) es idéntico para ambos escenarios.
+5. Continuar a 5.1 — el resto del flujo (PAT + upload-evidence.js) es idéntico para ambos escenarios.
 
 > ✅ `upload-evidence.js` solo usa módulos nativos de Node.js (`https`, `fs`, `path`) — no requiere `npm install`. Puede ejecutarse con `node TPlans/upload-evidence.js` directamente.
+> ✅ `upload-evidence.js` es **idempotente**: guarda `TPlans/upload-state.json` después de cada TC. Si se re-ejecuta: actualiza el comentario existente (PATCH) en lugar de crear uno nuevo. Nunca generará duplicados.
 
 ---
 
@@ -478,6 +520,8 @@ El agente ejecutó cada paso via MCP Browser. Antes de subir evidencia:
 Run this PowerShell to read the PAT automatically from VS Code's MCP configuration:
 
 ```powershell
+# ⚠️ FIX: scan ALL server keys — the key name may be "ado", "azure-devops", or custom.
+#         Do NOT hardcode the server key name.
 $pat = $null
 $locations = @(
   "$env:APPDATA\Code\User\mcp.json",
@@ -487,13 +531,19 @@ $locations = @(
 foreach ($f in $locations) {
   if (Test-Path $f) {
     $content = Get-Content $f -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
-    $pat = $content.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT
-    if (-not $pat) { $pat = $content.mcp.servers."azure-devops".env.AZURE_DEVOPS_EXT_PAT }
-    if ($pat -and $pat -notlike '${env:*}') { break }
+    $serversObj = if ($content.servers) { $content.servers } elseif ($content.mcp.servers) { $content.mcp.servers } else { $null }
+    if ($serversObj) {
+      foreach ($key in ($serversObj | Get-Member -MemberType NoteProperty).Name) {
+        $candidate = $serversObj.$key.env.AZURE_DEVOPS_EXT_PAT
+        if ($candidate -and $candidate -notlike '${env:*}') { $pat = $candidate; break }
+      }
+    }
+    if ($pat) { break }
   }
 }
 if (-not $pat) { $pat = $env:AZURE_DEVOPS_EXT_PAT }
 if ($pat) {
+  $pat = $pat -replace '[\r\n\s]', ''   # strip embedded whitespace/newlines
   $env:ADO_PAT = $pat
   Write-Host "PAT extraído automáticamente del MCP config."
 } else {
@@ -507,16 +557,69 @@ Generate `TPlans/upload-evidence.js` and execute automatically, no user input ne
 
 The script must:
 1. **Read PAT from `process.env.ADO_PAT`** — never from a file or argument
-2. For each TC in `results.json`:
+2. **Read results from `TPlans/results.json`** — never hardcode TC data in the script
+3. **Implement idempotency via `TPlans/upload-state.json`**:
+   - On start: load state file (`{}` if not found)
+   - Per TC: if `state[wiId].allScreenshots === true` → **skip entirely** (already uploaded)
+   - If `state[wiId].commentId` exists but `allScreenshots` is false → **PATCH** the existing comment instead of creating a new one
+   - On success: save `state[wiId] = { commentId, allScreenshots }` immediately
+   - This guarantees zero duplicate comments even if the script is re-run multiple times
+
+   ```js
+   // ✅ REQUIRED idempotency block — always include this
+   const STATE_FILE = path.join(__dirname, 'upload-state.json');
+   function loadState() {
+     try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; }
+   }
+   function saveState(state) {
+     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+   }
+
+   async function postComment(wiId, html) {
+     const url = `https://dev.azure.com/${ORG}/${PROJECT}/_apis/wit/workItems/${wiId}/comments?api-version=7.0-preview.3`;
+     const res = await adoRequest('POST', url, { text: html }, 'application/json');
+     return res.id;
+   }
+
+   async function patchComment(wiId, commentId, html) {
+     const url = `https://dev.azure.com/${ORG}/${PROJECT}/_apis/wit/workItems/${wiId}/comments/${commentId}?api-version=7.0-preview.3`;
+     const res = await adoRequest('PATCH', url, { text: html }, 'application/json');
+     return res.id;
+   }
+
+   // In main():
+   const state = loadState();
+   for (const tc of results) {
+     const key = String(tc.wiId);
+     const prev = state[key];
+     if (prev && prev.allScreenshots) {
+       console.log(`⏭️  WI ${tc.wiId} — ya subido, omitiendo.`);
+       continue;
+     }
+     // ... upload screenshots ...
+     const html = buildHtml(tc, stepUrls, date);
+     let commentId;
+     if (prev && prev.commentId) {
+       commentId = await patchComment(tc.wiId, prev.commentId, html);
+     } else {
+       commentId = await postComment(tc.wiId, html);
+     }
+     state[key] = { commentId, allScreenshots };
+     saveState(state);
+   }
+   ```
+
+4. For each TC in `results.json`:
    a. Upload each PNG to `https://dev.azure.com/{ORG}/{PROJECT}/_apis/wit/attachments` → receive back an attachment URL with a GUID
    b. **Do NOT PATCH the work item to add attachment relations** — not needed
-   c. POST a single HTML comment to the work item using `mcp_ado_wit_add_work_item_comment` (or REST POST) with:
+   c. POST (or PATCH if re-run) a single HTML comment with:
       - Result table (PASSED/FAILED per step)
       - Inline images using `<img src="{ATTACHMENT_URL}">` directly in the HTML
       - Execution timestamp and agent signature
 
 > ✅ The images are visible inline in the comment. ADO stores the PNG in its attachment storage and serves it via the URL. No WI relation patching is required.
 > ✅ Verified: WI relations count = 0 after successful execution — images still render correctly inline.
+> ✅ `upload-state.json` is local only — add it to `.gitignore` if the project uses git.
 
 #### ⚠️ CRITICAL — adoRequest must handle Buffer bodies without string conversion
 
@@ -684,6 +787,58 @@ When all phases complete, summarize with this exact message:
 > ¿Quieres ejecutar más TCs o hay algo que ajustar?
 
 **Do NOT ask for further input unless the user replies.** The skill is complete.
+
+---
+
+## KNOWN BROWSER INTERACTION GOTCHAS (Escenario B)
+
+Document failures observed in real executions so future agents avoid them.
+
+### Botón con imagen superpuesta (ej: SauceDemo hamburger menu)
+
+**Síntoma**: `mcp_playwright_browser_click` en el botón no responde, o `locator.click()` lanza "Element intercepts pointer events".
+
+**Causa**: Un elemento `<img>` u overlay cubre el área clickeable del botón. El locator CSS apunta a la imagen, no al botón real.
+
+**Patrón correcto** — usar JS click vía `run_code` como fallback después de 1 intento fallido:
+```js
+// SauceDemo hamburger menu
+await page.evaluate(() => document.querySelector('#react-burger-menu-btn').click());
+// Luego esperar a que el menú se abra:
+await page.waitForFunction(() => document.querySelector('.bm-menu-wrap').getAttribute('aria-hidden') === 'false');
+// Click en logout:
+await page.evaluate(() => document.querySelector('#logout_sidebar_link').click());
+```
+
+**Regla**: Si `mcp_playwright_browser_click` falla en el primer intento → pasar **directamente** a `run_code` con `page.evaluate(() => element.click())`. NO reintentar el mismo locator click más de 1 vez.
+
+### Estado de toggle antes de hacer click
+
+**Síntoma**: El menú se cierra en lugar de abrirse (o viceversa) porque el agente no verificó el estado previo.
+
+**Regla**: Antes de hacer click en cualquier elemento toggle (menú, accordion, tab), verificar su estado actual:
+```js
+// verificar si el menú ya está abierto
+const isOpen = await page.evaluate(() => 
+  document.querySelector('.bm-menu-wrap').getAttribute('aria-hidden') === 'false'
+);
+if (!isOpen) {
+  await page.evaluate(() => document.querySelector('#react-burger-menu-btn').click());
+}
+```
+
+### `waitForSelector` con `state: 'visible'` no funciona en CSS-hidden elements
+
+**Síntoma**: `page.waitForSelector('#logout_sidebar_link', { state: 'visible' })` lanza timeout aunque el elemento existe en el DOM.
+
+**Causa**: El elemento está oculto via CSS transform/display (no `display:none` semántico) y Playwright no lo considera "visible".
+
+**Fix**: Usar `waitForFunction` sobre el atributo aria o clase CSS del contenedor padre:
+```js
+await page.waitForFunction(() =>
+  document.querySelector('.bm-menu-wrap').getAttribute('aria-hidden') === 'false'
+);
+```
 
 ---
 
