@@ -189,7 +189,7 @@ Continue immediately.
 ### 2.2 — Working directory
 Create (or reuse) a directory for this execution:
 ```
-{project-root}/TPlans/
+{project-root}/e2e/
 ```
 If it doesn't exist, create it.
 
@@ -198,30 +198,43 @@ If it doesn't exist, create it.
 > 📢 **SAY TO USER (before running):**
 > Configurando el entorno de pruebas. Esto puede tardar 1-2 minutos en la primera vez. No necesitas hacer nada — te aviso cuando esté listo. ⏳
 
-Set up a full Playwright test project inside `TPlans/` — not a single script.
+Set up a full Playwright test project inside `e2e/` — not a single script.
 
 ```powershell
-cd TPlans
+cd e2e
 npm init -y          # only if package.json doesn't exist
-npm install --save-dev @playwright/test
+npm install --save-dev @playwright/test @types/node typescript cross-env
 npx playwright install chromium
 ```
+
+> ⚠️ `@types/node` y `typescript` son OBLIGATORIOS — sin ellos VS Code muestra errores rojos en `process`, `fs`, `path` y `__dirname` aunque los tests corran correctamente.
+> Después de generar las specs, validar con: `node_modules\.bin\tsc.cmd --noEmit` — 0 errores antes de ejecutar.
 
 > 📢 **SAY TO USER (after success):**
 > ✅ Entorno listo. Playwright instalado y Chromium descargado.
 
 Then create the project structure:
 ```
-TPlans/
-├── playwright.config.ts   ← config with baseURL, headless, reporter
-├── package.json           ← with npm scripts for run/headed/headless/debug
+e2e/
+├── playwright.config.ts        ← config with baseURL, headless, reporter
+├── package.json                ← with npm scripts for run/headed/headless/debug
+├── tsconfig.json               ← REQUIRED: with @types/node
 ├── tests/
-│   └── {suite-name}.spec.ts   ← one spec per suite (or one per TC)
-└── fixtures/
-    └── base.fixture.ts    ← shared login helper and page setup
+│   └── tp{PLAN_ID}-{plan-name}/
+│       └── suite{SUITE_ID}-{suite-name}.spec.ts   ← one spec per suite
+├── fixtures/
+│   └── auth.fixture.ts         ← shared login helper
+└── results/                    ← gitignored
+    └── {WI_ID}/
+        └── step{N}.png
 ```
 
-**`TPlans/playwright.config.ts`** (generate this file):
+> ⚠️ Naming convention obligatorio:
+> - Carpeta plan: `tp{PLAN_ID}-{plan-name-kebab}` — ej: `tp9412-saucedemo-e2e`
+> - Archivo spec: `suite{SUITE_ID}-{suite-name-kebab}.spec.ts` — ej: `suite9418-sesion.spec.ts`
+> Esto permite localizar specs por TP/Suite sin abrir el archivo.
+
+**`e2e/playwright.config.ts`** (generate this file):
 ```ts
 import { defineConfig } from '@playwright/test';
 
@@ -250,27 +263,31 @@ export default defineConfig({
 });
 ```
 
-**`TPlans/package.json` scripts** (update after npm init):
+**`e2e/package.json` scripts** (update after npm init):
 ```json
 "scripts": {
-  "test": "npx playwright test",
-  "test:headed": "npx playwright test --headed",
-  "test:slow": "set SLOW_MO=800 && npx playwright test --headed",
-  "test:debug": "npx playwright test --debug",
-  "report": "npx playwright show-report"
+  "test":                  "npx playwright test",
+  "test:headed":           "npx playwright test --headed",
+  "test:slow":             "cross-env SLOW_MO=800 npx playwright test --headed",
+  "test:debug":            "npx playwright test --debug",
+  "tp:{PLAN_ID}":          "npx playwright test tests/tp{PLAN_ID}-{plan-name}/",
+  "tp:{PLAN_ID}:headed":   "npx playwright test tests/tp{PLAN_ID}-{plan-name}/ --headed",
+  "suite:{SUITE_ID}":      "npx playwright test tests/tp{PLAN_ID}-{plan-name}/suite{SUITE_ID}-{suite-name}.spec.ts",
+  "suite:{SUITE_ID}:headed": "npx playwright test tests/tp{PLAN_ID}-{plan-name}/suite{SUITE_ID}-{suite-name}.spec.ts --headed",
+  "validate":              "node_modules\\.bin\\tsc.cmd --noEmit",
+  "report":                "npx playwright show-report"
 }
 ```
 
-> ⚠️ `test:slow` usa `set VAR=value &&` — sintaxis nativa de cmd.exe que npm usa internamente.
-> NO usar `cross-env`, `$env:`, ni `export` — no están disponibles sin dependencias adicionales.
-> El `SLOW_MO=800` agrega 800ms entre acciones para que el usuario pueda ver el proceso.
-> El usuario puede ajustarlo desde PowerShell: `$env:SLOW_MO='500'; npm run test:headed`
+> ⚠️ `cross-env` permite setear `SLOW_MO` de forma cross-platform — ya está instalado con `npm install --save-dev @playwright/test @types/node typescript cross-env`.
+> El usuario también puede sobrescribir desde PowerShell: `$env:SLOW_MO='500'; npm run test:headed`
+> Los scripts `tp:` y `suite:` usan los IDs reales del plan — reemplazar `{PLAN_ID}`, `{SUITE_ID}` y nombres en kebab-case al generar.
 
 Run these automatically. Do not ask the user — just do it and confirm when done.
 
-### 2.3b — TPlans/tsconfig.json (REQUIRED — prevents TypeScript errors on `process`)
+### 2.3b — e2e/tsconfig.json (REQUIRED — prevents TypeScript errors on `process`, `fs`, `path`, `__dirname`)
 
-Create this file inside `TPlans/` immediately after creating `playwright.config.ts`:
+Create this file inside `e2e/` immediately after creating `playwright.config.ts`:
 
 ```json
 {
@@ -280,15 +297,18 @@ Create this file inside `TPlans/` immediately after creating `playwright.config.
     "lib": ["ES2020", "DOM"],
     "strict": true,
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["playwright.config.ts", "tests/**/*", "fixtures/**/*"]
+  "include": ["playwright.config.ts", "tests/**/*", "fixtures/**/*"],
+  "exclude": ["node_modules"]
 }
 ```
 
-> ⚠️ Without this file, TypeScript cannot find `process` (Node.js global) and throws compile errors.
-> The root `tsconfig.json` (from the Playwright template) does NOT cover `TPlans/` — this file is required.
+> ⚠️ `"types": ["node"]` es OBLIGATORIO — sin él `fs`, `path`, `__dirname` y `process.env` dan error TS aunque los tests corran.
+> El `tsconfig.json` raíz del workspace NO cubre `e2e/` — este archivo es independiente.
+> Validar después de generar specs: `node_modules\.bin\tsc.cmd --noEmit` debe retornar 0 errores.
 
 ### 2.4 — ADO MCP
 Verify `mcp_ado_testplan_list_test_cases` is available.
@@ -382,30 +402,53 @@ If the plan has many suites and the user didn't specify, show the list and ask:
 
 ### 4.1 — Generate Playwright specs (`.spec.ts`) dynamically
 
-Generate spec files in `TPlans/tests/` based on TC_MAP.
+Generate spec files in `e2e/tests/tp{PLAN_ID}-{plan-name}/` based on TC_MAP.
+
+Naming rules:
+- Carpeta del plan: `tp{PLAN_ID}-{plan-name-kebab}` — ej: `tp9412-saucedemo-e2e`
+- Archivo spec: `suite{SUITE_ID}-{suite-name-kebab}.spec.ts` — ej: `suite9418-sesion.spec.ts`
 
 **One spec per suite** (or one per TC for small plans). The spec must:
 - Use `@playwright/test` — `import { test, expect } from '@playwright/test'`
 - Name each test exactly with the TC title: `test('TC-001 — {título}', async ({ page }) => {`
-- Capture screenshots at each step: `await page.screenshot({ path: 'TPlans/{WI_ID}/step{N}.png' })`
-- Save step results to a JSON array and write `TPlans/results.json` in an `afterAll` hook
-- Use the shared login helper from `fixtures/base.fixture.ts` if login is needed
+- Capture screenshots at each step using `__dirname` + `path.join` for portability:
+  ```ts
+  import * as fs from 'fs';
+  import * as path from 'path';
+  const dir = path.join(__dirname, '..', '..', 'results', String(wiId));
+  fs.mkdirSync(dir, { recursive: true });
+  await page.screenshot({ path: path.join(dir, `step${N}.png`) });
+  ```
+- Save step results to a JSON array and write `e2e/results.json` in an `afterAll` hook
+- Use `baseURL` from `playwright.config.ts` — use `page.goto('/')` NOT hardcoded full URL
+- Use the shared login helper from `fixtures/auth.fixture.ts` if login is a PRECONDITION (not a TC step)
+- If login IS a TC step (must appear in evidencia) — keep it inline in the spec, do NOT use the fixture
 - Use `headless: true` by default (from playwright.config.ts)
 
-**`TPlans/fixtures/base.fixture.ts`** (generate this file if login is needed):
+**`e2e/fixtures/auth.fixture.ts`** (generate this file if login is a precondition):
 ```ts
-import { test as base } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
 
-export const test = base.extend<{ loggedIn: void }>({  
+export type AuthFixtures = { loggedIn: void };
+
+export const test = base.extend<AuthFixtures>({
   loggedIn: async ({ page }, use) => {
-    await page.goto('{APP_URL}');
-    // fill login from credentials
+    const user = process.env.APP_USER ?? '{APP_USER}';
+    const pass = process.env.APP_PASS ?? '{APP_PASS}';
+    await page.goto('/');
+    await page.fill('{USER_SELECTOR}', user);
+    await page.fill('{PASS_SELECTOR}', pass);
+    await page.click('{LOGIN_SELECTOR}');
+    await expect(page).toHaveURL(/{post-login-path}/);
     await use();
   },
 });
+
+export { expect } from '@playwright/test';
 ```
 
-### 4.2 — Execute
+> ⚠️ VALIDAR antes de ejecutar: correr `npm run validate` (`tsc --noEmit`) — debe retornar 0 errores.
+> Si hay errores TS, corregirlos antes de continuar.
 
 > 📢 **SAY TO USER (before running):**
 > Ejecutando los tests ahora. Puedes:
@@ -453,13 +496,13 @@ $env:SLOW_MO = '500'; npm run test:headed
 
 ### 5.0 — Preparar screenshots según escenario
 
-**Escenario A:** Los screenshots ya existen en `TPlans/results/{WI_ID}/stepN.png` (generados por el spec en Phase 4). `results.json` ya existe. Continuar a 5.1.
+**Escenario A:** Los screenshots ya existen en `e2e/results/{WI_ID}/stepN.png` (generados por el spec en Phase 4). `results.json` ya existe en `e2e/results.json`. Continuar a 5.1.
 
 **Escenario B — Guardar screenshots de MCP Browser a disco:**
 
 El agente ejecutó cada paso via MCP Browser. Antes de subir evidencia:
 
-1. Crear directorio `TPlans/results/{WI_ID}/` para cada TC (crear `TPlans/` si no existe — solo la carpeta, sin npm project)
+1. Crear directorio `e2e/results/{WI_ID}/` para cada TC (crear `e2e/` si no existe — solo la carpeta, sin npm project)
 
 2. **Guardar cada screenshot usando el método correcto según la herramienta:**
 
@@ -467,30 +510,30 @@ El agente ejecutó cada paso via MCP Browser. Antes de subir evidencia:
 
    | Herramienta | Formato path | Ejemplo |
    |-------------|-------------|---------|
-   | `mcp_playwright_browser_take_screenshot` | **Relativo al root del workspace** (sin `c:\`) | `TPlans/results/9433/step1.png` |
-   | `mcp_playwright_browser_run_code` (`page.screenshot()`) | **Absoluto con forward slashes** | `c:/Users/User/.../TPlans/results/9433/step1.png` |
+   | `mcp_playwright_browser_take_screenshot` | **Relativo al root del workspace** (sin `c:\`) | `e2e/results/9433/step1.png` |
+   | `mcp_playwright_browser_run_code` (`page.screenshot()`) | **Absoluto con forward slashes** | `c:/Users/User/.../e2e/results/9433/step1.png` |
 
    **Para `mcp_playwright_browser_take_screenshot`:**
    ```
-   filename: "TPlans/results/{WI_ID}/step{N}.png"
+   filename: "e2e/results/{WI_ID}/step{N}.png"
    ```
    ✅ El directorio debe existir previamente (créalo con `New-Item -ItemType Directory -Force`).
    ❌ NO usar path absoluto con `C:\` — da error "File access denied: outside allowed roots".
 
    **Para `mcp_playwright_browser_run_code` (fallback cuando interactive click es necesario):**
    ```js
-   await page.screenshot({ path: 'c:/Users/User/OneDrive/Documents/Talleres/{project}/TPlans/results/{WI_ID}/step{N}.png' });
+   await page.screenshot({ path: 'c:/Users/User/OneDrive/Documents/Talleres/{project}/e2e/results/{WI_ID}/step{N}.png' });
    ```
    ✅ Ruta absoluta con forward slashes.
    ❌ NO usar ruta relativa — el CWD del proceso MCP puede no ser el root del workspace.
 
 3. **SIEMPRE verificar que el archivo existe después de guardar**, antes de continuar al siguiente paso:
    ```powershell
-   Get-ChildItem "TPlans\results\{WI_ID}\" | Select-Object Name, Length
+   Get-ChildItem "e2e\results\{WI_ID}\" | Select-Object Name, Length
    ```
    Si algún archivo tiene `Length = 0` o no existe → capturar de nuevo antes de continuar.
 
-4. Construir manualmente `TPlans/results.json` con la estructura:
+4. Construir manualmente `e2e/results.json` con la estructura:
 ```json
 [
   {
@@ -498,8 +541,10 @@ El agente ejecutó cada paso via MCP Browser. Antes de subir evidencia:
     "wiId": 9433,
     "title": "TC título",
     "suite": "Suite nombre",
+    "planId": {PLAN_ID},
+    "suiteId": {SUITE_ID},
     "steps": [
-      { "step": 1, "action": "...", "expected": "...", "status": "PASSED", "screenshot": "TPlans/results/9433/step1.png" }
+      { "step": 1, "action": "...", "expected": "...", "status": "PASSED", "screenshot": "e2e/results/9433/step1.png" }
     ],
     "overall": "PASSED"
   }
@@ -553,12 +598,12 @@ if ($pat) {
 
 ### 5.2 — If PAT extracted → run upload-evidence.js
 
-Generate `TPlans/upload-evidence.js` and execute automatically, no user input needed.
+Generate `e2e/upload-evidence.js` and execute automatically, no user input needed.
 
 The script must:
 1. **Read PAT from `process.env.ADO_PAT`** — never from a file or argument
-2. **Read results from `TPlans/results.json`** — never hardcode TC data in the script
-3. **Implement idempotency via `TPlans/upload-state.json`**:
+2. **Read results from `e2e/results.json`** — never hardcode TC data in the script
+3. **Implement idempotency via `e2e/upload-state.json`**:
    - On start: load state file (`{}` if not found)
    - Per TC: if `state[wiId].allScreenshots === true` → **skip entirely** (already uploaded)
    - If `state[wiId].commentId` exists but `allScreenshots` is false → **PATCH** the existing comment instead of creating a new one
@@ -741,7 +786,7 @@ Note: ADO sanitizes these URLs internally to `\u0006/GUID` in `renderedText` JSO
 
 Run automatically:
 ```powershell
-node TPlans/upload-evidence.js
+node e2e/upload-evidence.js
 ```
 
 > 📢 **SAY TO USER (progress — print for each TC):**
@@ -777,7 +822,7 @@ When all phases complete, summarize with this exact message:
 > ```
 >
 > 📁 **Screenshots locales guardados en:**
-> `TPlans/{WI_ID}/` — una carpeta por TC con las fases
+> `e2e/results/{WI_ID}/` — una carpeta por TC con las fases
 >
 > 📋 **ADO actualizado — cómo verificar:**
 > 1. Ve a: `https://dev.azure.com/{ORG}/{PROJECT}/_testPlans/execute?planId={PLAN_ID}`
